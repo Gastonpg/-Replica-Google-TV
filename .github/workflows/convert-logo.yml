@@ -1,14 +1,14 @@
-name: Convert PG logo to transparent PNG
+name: Install original PG logo PNG
 on:
   push:
     branches: [prueba-diseno-gemini]
     paths:
-      - 'Gemini_Generated_Image_45ys0045ys0045ys.jpg'
+      - 'Code_Generated_Image.png'
       - '.github/workflows/convert-logo.yml'
 permissions:
   contents: write
 jobs:
-  convert:
+  install:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,54 +16,17 @@ jobs:
           ref: prueba-diseno-gemini
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: python -m pip install Pillow
-      - name: Remove checkerboard background and save transparent PNG
+      - name: Copy original PNG without altering transparency
         run: |
           mkdir -p app/src/main/res/drawable-nodpi
-          python - <<'PY'
-          from PIL import Image
-          from collections import deque
-          im = Image.open('Gemini_Generated_Image_45ys0045ys0045ys.jpg').convert('RGBA')
-          px = im.load()
-          w, h = im.size
-          # Treat only near-neutral light gray/white pixels as background, and
-          # only when connected to an image edge; preserve isolated metallic details.
-          def bg(x, y):
-              r, g, b, a = px[x, y]
-              return min(r, g, b) >= 170 and max(r, g, b) - min(r, g, b) <= 24
-          seen = bytearray(w * h)
-          q = deque()
-          for x in range(w):
-              for y in (0, h - 1):
-                  if bg(x, y):
-                      i = y * w + x
-                      if not seen[i]: seen[i] = 1; q.append((x, y))
-          for y in range(h):
-              for x in (0, w - 1):
-                  if bg(x, y):
-                      i = y * w + x
-                      if not seen[i]: seen[i] = 1; q.append((x, y))
-          while q:
-              x, y = q.popleft()
-              px[x, y] = (px[x, y][0], px[x, y][1], px[x, y][2], 0)
-              for nx, ny in ((x-1,y),(x+1,y),(x,y-1),(x,y+1)):
-                  if 0 <= nx < w and 0 <= ny < h:
-                      i = ny * w + nx
-                      if not seen[i] and bg(nx, ny):
-                          seen[i] = 1
-                          q.append((nx, ny))
-          im.save('app/src/main/res/drawable-nodpi/pg_logo.png', format='PNG', optimize=True)
-          print('Saved transparent PNG:', im.size, im.mode)
-          PY
-      - name: Commit converted resource
+          cp Code_Generated_Image.png app/src/main/res/drawable-nodpi/pg_logo.png
+          file app/src/main/res/drawable-nodpi/pg_logo.png
+      - name: Commit logo resource
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app/src/main/res/drawable-nodpi/pg_logo.png
-          if git diff --cached --quiet; then echo "PNG already up to date"; exit 0; fi
-          git commit -m "Convert PG logo background to transparency"
+          if git diff --cached --quiet; then echo "Logo resource already matches original PNG"; exit 0; fi
+          git commit -m "Use original transparent PG logo PNG"
           git pull --rebase origin prueba-diseno-gemini
           git push origin prueba-diseno-gemini
