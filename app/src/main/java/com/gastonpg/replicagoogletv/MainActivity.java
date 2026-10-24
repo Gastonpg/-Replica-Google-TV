@@ -137,27 +137,27 @@ public class MainActivity extends Activity {
             c.drawRect(0, 980, 1920, 1080, p);
             reset();
 
-            // Header: GP identity and translucent search pill.
-            // PG metallic logo resource converted from the exact uploaded artwork.
+            // Header: visible PG logo with Gastón Puig immediately beside it.
+            // Keep the logo artwork intact; the glass tile provides contrast on dark backgrounds.
+            glass(62, 35, 132, 101, 18, false);
             try {
                 BitmapFactory.Options logoOptions = new BitmapFactory.Options();
                 logoOptions.inScaled = false;
                 Bitmap logo = BitmapFactory.decodeResource(getResources(), R.drawable.pg_logo, logoOptions);
                 if (logo != null) {
-                    fill(0x00000000);
+                    p.setAlpha(255);
+                    p.setColor(0xFFFFFFFF);
                     p.setFilterBitmap(true);
-                    c.drawBitmap(logo, null, new RectF(75, 39, 127, 91), p);
+                    c.drawBitmap(logo, null, new RectF(70, 39, 124, 97), p);
                     reset();
                 } else {
-                    glass(70, 43, 132, 98, 16, false);
-                    centerLabel("GP", 101, 81, 25, 0xFFF8FBFF, true);
+                    centerLabel("PG", 97, 80, 28, 0xFFFFFFFF, true);
                 }
             } catch (Exception ignored) {
-                glass(70, 43, 132, 98, 16, false);
-                centerLabel("GP", 101, 81, 25, 0xFFF8FBFF, true);
+                centerLabel("PG", 97, 80, 28, 0xFFFFFFFF, true);
             }
-            glass(140, 48, 270, 89, 20, false);
-            label("Gastón Puig", 153, 75, 18, 0xFFE8EAED, true);
+            glass(140, 48, 282, 89, 20, false);
+            label("Gastón Puig", 153, 75, 18, 0xFFFFFFFF, true);
             glass(502, 42, 672, 100, 29, false);
             label("⌕", 522, 79, 29, 0xFFDDEAFF, true);
             label("Buscar", 555, 77, 19, 0xFFE1E7EF, false);
