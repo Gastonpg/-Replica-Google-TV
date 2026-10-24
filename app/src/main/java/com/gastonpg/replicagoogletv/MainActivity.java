@@ -103,7 +103,7 @@ public class MainActivity extends Activity {
             if(key==KeyEvent.KEYCODE_DPAD_RIGHT){selected=Math.min(13,selected+1);invalidate();return true;}
             if(key==KeyEvent.KEYCODE_DPAD_CENTER||key==KeyEvent.KEYCODE_ENTER) {
                 if(selected>=10 && selected<=12) launchByName(apps[selected-10]);
-                else if(selected==13) startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));
+                else if(selected==13) a.startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));
                 return true;
             }
             return super.onKeyDown(key,e);
