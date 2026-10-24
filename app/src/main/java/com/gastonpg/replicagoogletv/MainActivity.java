@@ -137,9 +137,8 @@ public class MainActivity extends Activity {
             c.drawRect(0, 980, 1920, 1080, p);
             reset();
 
-            // Header: visible PG logo with Gastón Puig immediately beside it.
-            // Keep the logo artwork intact; the glass tile provides contrast on dark backgrounds.
-            glass(62, 35, 132, 101, 18, false);
+            // Header: original PG logo artwork and plain Gastón Puig lettering.
+            // No tile or capsule behind either element.
             try {
                 BitmapFactory.Options logoOptions = new BitmapFactory.Options();
                 logoOptions.inScaled = false;
@@ -156,8 +155,7 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
                 centerLabel("PG", 97, 80, 28, 0xFFFFFFFF, true);
             }
-            glass(140, 48, 282, 89, 20, false);
-            label("Gastón Puig", 153, 75, 18, 0xFFFFFFFF, true);
+            label("Gastón Puig", 140, 75, 18, 0xFFFFFFFF, true);
             glass(502, 42, 672, 100, 29, false);
             label("⌕", 522, 79, 29, 0xFFDDEAFF, true);
             label("Buscar", 555, 77, 19, 0xFFE1E7EF, false);
