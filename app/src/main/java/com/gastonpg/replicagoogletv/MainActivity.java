@@ -81,13 +81,7 @@ public class MainActivity extends Activity {
             }
             // Settings glass button
             glass(1800,39,1860,99,24,false); text("⚙",1816,79,31,0xFFF5F8FC,true);
-            // Hero information and action buttons
-            text("UNA EXPERIENCIA PARA VOS",78,202,17,0xFFD7E4EF,true);
-            text("Tu próxima historia",78,282,52,0xFFFFFFFF,true);
-            text("empieza acá.",78,342,52,0xFFFFFFFF,true);
-            text("Películas, series y aplicaciones en un solo lugar.",80,392,23,0xFFCBD5DF,false);
-            glass(78,432,286,495,25,true); text("▶   Reproducir",104,471,21,0xFFFFFFFF,true);
-            glass(304,432,474,495,25,false); text("ⓘ   Detalles",330,471,21,0xFFF2F5F9,true);
+            // Hero central limpio: no agregar slogans ni botones que no estén en la referencia.
             // Content rows
             text("Seguir viendo",78,570,30,0xFFF6F8FB,true);
             String[] titles={"DUNE: PARTE DOS","THE BATMAN","INTERSTELLAR","PLANETA TIERRA"};
