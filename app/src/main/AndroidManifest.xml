@@ -7,6 +7,8 @@
     <application
         android:allowBackup="false"
         android:label="Réplica Google TV"
+        android:icon="@drawable/pg_launcher_icon"
+        android:roundIcon="@drawable/pg_launcher_icon"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:usesCleartextTraffic="true">
         <activity
