@@ -1,0 +1,15 @@
+plugins {
+    id 'com.android.application'
+}
+android {
+    namespace 'com.gastonpg.replicagoogletv'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'com.gastonpg.replicagoogletv'
+        minSdk 28
+        targetSdk 29
+        versionCode 1
+        versionName '0.1.0'
+    }
+}
