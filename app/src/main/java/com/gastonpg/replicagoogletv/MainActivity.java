@@ -138,9 +138,26 @@ public class MainActivity extends Activity {
             reset();
 
             // Header: GP identity and translucent search pill.
-            glass(70, 43, 132, 98, 16, false);
-            centerLabel("GP", 101, 81, 25, 0xFFF8FBFF, true);
-            label("Gastón Puig", 146, 78, 21, 0xFFF2F6FC, true);
+            // PG metallic logo resource converted from the exact uploaded artwork.
+            try {
+                BitmapFactory.Options logoOptions = new BitmapFactory.Options();
+                logoOptions.inScaled = false;
+                Bitmap logo = BitmapFactory.decodeResource(getResources(), R.drawable.pg_logo, logoOptions);
+                if (logo != null) {
+                    fill(0x00000000);
+                    p.setFilterBitmap(true);
+                    c.drawBitmap(logo, null, new RectF(75, 39, 127, 91), p);
+                    reset();
+                } else {
+                    glass(70, 43, 132, 98, 16, false);
+                    centerLabel("GP", 101, 81, 25, 0xFFF8FBFF, true);
+                }
+            } catch (Exception ignored) {
+                glass(70, 43, 132, 98, 16, false);
+                centerLabel("GP", 101, 81, 25, 0xFFF8FBFF, true);
+            }
+            glass(140, 48, 270, 89, 20, false);
+            label("Gastón Puig", 153, 75, 18, 0xFFE8EAED, true);
             glass(502, 42, 672, 100, 29, false);
             label("⌕", 522, 79, 29, 0xFFDDEAFF, true);
             label("Buscar", 555, 77, 19, 0xFFE1E7EF, false);
