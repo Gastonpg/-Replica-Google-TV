@@ -37,11 +37,28 @@ public class MainActivity extends Activity {
             fill(color); p.setTextSize(size); p.setTypeface(bold?Typeface.create("sans-serif",Typeface.BOLD):Typeface.create("sans-serif",Typeface.NORMAL)); c.drawText(s,x,y,p);
         }
         void glass(float l,float t,float r,float b,float rad,boolean active) {
-            fill(active?0x2EFFFFFF:0x16FFFFFF); c.drawRoundRect(l,t,r,b,rad,rad,p);
-            p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(active?3.5f:1.2f);
-            p.setColor(active?0xFFF8FCFF:0x55FFFFFF);
-            if(active) p.setShadowLayer(20,0,0,0x99FFFFFF);
-            c.drawRoundRect(l,t,r,b,rad,rad,p); p.setStyle(Paint.Style.FILL); p.setShadowLayer(0,0,0,0);
+            // Layered translucent glass: soft depth, subtle top reflection, and a crisp active halo.
+            fill(active?0x35FFFFFF:0x1CFFFFFF);
+            p.setShader(new LinearGradient(l,t,l,b,
+                new int[]{active?0x42FFFFFF:0x24FFFFFF,active?0x18DCEBFA:0x0CFFFFFF,0x12000000},
+                null,Shader.TileMode.CLAMP));
+            c.drawRoundRect(l,t,r,b,rad,rad,p);
+            p.setShader(null);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(active?7f:1.2f);
+            p.setColor(active?0x40FFFFFF:0x20FFFFFF);
+            if(active) p.setShadowLayer(24,0,0,0xCCFFFFFF);
+            c.drawRoundRect(l,t,r,b,rad,rad,p);
+            p.setShadowLayer(0,0,0,0);
+            p.setStrokeWidth(active?2.5f:1.2f);
+            p.setColor(active?0xFFF8FCFF:0x66FFFFFF);
+            c.drawRoundRect(l,t,r,b,rad,rad,p);
+            p.setStyle(Paint.Style.FILL);
+            p.setShader(new LinearGradient(l,t,l,b,
+                new int[]{0x22FFFFFF,0x00FFFFFF},null,Shader.TileMode.CLAMP));
+            c.drawRoundRect(l+2,t+2,r-2,t+Math.max(5,rad*0.8f),rad,rad,p);
+            p.setShader(null);
+            p.setShadowLayer(0,0,0,0);
         }
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas); c=canvas; sx=getWidth()/1920f; sy=getHeight()/1080f;
