@@ -6,21 +6,49 @@ import android.graphics.*;
 import android.view.*;
 import android.content.*;
 import android.content.pm.*;
+import android.net.Uri;
+import java.io.InputStream;
 import java.util.*;
 
 public class MainActivity extends Activity {
+    private static final int REQUEST_PROFILE_IMAGE = 731;
+    private static final String PREFS = "pg_launcher_preferences";
+    private static final String PROFILE_URI = "profile_image_uri";
+    private TVHome home;
+
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().getDecorView().setSystemUiVisibility(
             View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-        setContentView(new TVHome(this));
+        home = new TVHome(this);
+        setContentView(home);
+    }
+
+    private void chooseProfileImage() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("image/*");
+        startActivityForResult(intent, REQUEST_PROFILE_IMAGE);
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_PROFILE_IMAGE && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            Uri uri = data.getData();
+            try {
+                getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception ignored) { }
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(PROFILE_URI, uri.toString()).apply();
+            if (home != null) home.setProfileImage(uri);
+        }
     }
 
     static class TVHome extends View {
         private final Activity a;
         private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         private Canvas c;
+        private Bitmap profileBitmap;
         private float sx, sy;
         // Focus index 0-4: Seguir viendo; 5-13: apps.
         private int focused = 0;
@@ -42,6 +70,41 @@ public class MainActivity extends Activity {
             setFocusable(true);
             setFocusableInTouchMode(true);
             setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+            String saved = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString(PROFILE_URI, null);
+            if (saved != null) setProfileImage(Uri.parse(saved));
+        }
+
+        void setProfileImage(Uri uri) {
+            try (InputStream stream = a.getContentResolver().openInputStream(uri)) {
+                Bitmap loaded = BitmapFactory.decodeStream(stream);
+                if (loaded != null) {
+                    if (profileBitmap != null && !profileBitmap.isRecycled()) profileBitmap.recycle();
+                    profileBitmap = loaded;
+                    invalidate();
+                }
+            } catch (Exception ignored) { }
+        }
+
+        private void drawProfileAvatar() {
+            c.save();
+            Path clip = new Path();
+            clip.addCircle(1776, 71, 24, Path.Direction.CW);
+            c.clipPath(clip);
+            if (profileBitmap != null && !profileBitmap.isRecycled()) {
+                c.drawBitmap(profileBitmap, null, new RectF(1752, 47, 1800, 95), p);
+            } else {
+                fill(0xFFE3EAF4);
+                c.drawCircle(1776, 63, 7, p);
+                fill(0xFFE3EAF4);
+                c.drawRoundRect(1764, 72, 1788, 87, 8, 8, p);
+            }
+            c.restore();
+            reset();
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(1.5f);
+            p.setColor(0x99DDEBFF);
+            c.drawCircle(1776, 71, 24, p);
+            reset();
         }
 
         private void reset() {
@@ -171,10 +234,7 @@ public class MainActivity extends Activity {
             glass(1685, 46, 1735, 96, 25, false);
             centerLabel("⚙", 1710, 77, 23, 0xFFE8F0FA, true);
             glass(1751, 46, 1801, 96, 25, false);
-            fill(0xFFE3EAF4);
-            c.drawCircle(1776, 63, 7, p);
-            fill(0xFFE3EAF4);
-            c.drawRoundRect(1764, 72, 1788, 87, 8, 8, p);
+            drawProfileAvatar();
 
             // Hero surface: kept clean as in the reference, without invented marketing copy.
             glass(73, 138, 1847, 480, 24, false);
@@ -248,6 +308,18 @@ public class MainActivity extends Activity {
             c.restore();
         }
 
+        @Override public boolean onTouchEvent(android.view.MotionEvent event) {
+            if (event.getAction() == android.view.MotionEvent.ACTION_UP) {
+                float x = event.getX() / sx;
+                float y = event.getY() / sy;
+                if (x >= 1745 && x <= 1810 && y >= 40 && y <= 105) {
+                    ((MainActivity) a).chooseProfileImage();
+                    return true;
+                }
+            }
+            return true;
+        }
+
         @Override public boolean onKeyDown(int key, KeyEvent event) {
             if (key == KeyEvent.KEYCODE_DPAD_LEFT) {
                 if (focused == 0) focused = 4;
@@ -270,6 +342,7 @@ public class MainActivity extends Activity {
             }
             if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER) {
                 if (focused >= 5) launchApp(focused - 5);
+                else if (focused == 4) ((MainActivity) a).chooseProfileImage();
                 return true;
             }
             return super.onKeyDown(key, event);
