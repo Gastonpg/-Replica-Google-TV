@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <application
+        android:icon="@drawable/pg_logo"
+        android:roundIcon="@drawable/pg_logo"
         android:allowBackup="false"
         android:label="Réplica Google TV"
         android:theme="@android:style/Theme.Material.NoActionBar"
