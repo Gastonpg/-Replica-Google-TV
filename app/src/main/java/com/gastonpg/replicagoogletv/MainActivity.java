@@ -231,6 +231,17 @@ public class MainActivity extends Activity {
             c.drawRect(0, 0, 1920, 1080, p);
             reset();
 
+            // Cinematic artwork fills the whole screen, not a narrow rectangle.
+            if (heroBackdrop != null && !heroBackdrop.isRecycled()) {
+                drawCenterCrop(heroBackdrop, new RectF(0, 0, 1920, 1080));
+                reset();
+                p.setShader(new LinearGradient(0, 0, 0, 1080,
+                    new int[]{0xB805070C, 0x66101828, 0xD905070C},
+                    new float[]{0f, 0.48f, 1f}, Shader.TileMode.CLAMP));
+                c.drawRect(0, 0, 1920, 1080, p);
+                reset();
+            }
+
             // Smoky vignette around the outside edge.
             p.setShader(new LinearGradient(0, 0, 0, 100,
                 new int[]{0x507F8FA3, 0x00000000}, null, Shader.TileMode.CLAMP));
@@ -277,20 +288,7 @@ public class MainActivity extends Activity {
             glass(1751, 46, 1801, 96, 25, focused == 22);
             drawProfileAvatar();
 
-            // TMDB backdrop inside the existing hero panel.
-            c.save();
-            Path heroClip = new Path();
-            heroClip.addRoundRect(73, 138, 1847, 480, 24, 24, Path.Direction.CW);
-            c.clipPath(heroClip);
-            if (heroBackdrop != null && !heroBackdrop.isRecycled()) {
-                p.setAlpha(255); p.setFilterBitmap(true);
-                c.drawBitmap(heroBackdrop, null, new RectF(73, 138, 1847, 480), p);
-                reset();
-                p.setShader(new LinearGradient(73, 138, 73, 480, new int[]{0x5520293A, 0x66303B4D, 0xC805070C}, null, Shader.TileMode.CLAMP));
-                c.drawRect(73, 138, 1847, 480, p);
-                reset();
-            }
-            c.restore();
+            // Transparent glass hero surface over the full-screen cinematic image.
             glass(73, 138, 1847, 480, 24, false);
             // Subtle light on the hero's right side to give the empty artwork panel depth.
             reset();
@@ -310,7 +308,7 @@ public class MainActivity extends Activity {
             float[] cardW = {355, 332, 332, 332, 332};
             for (int i = 0; i < cardX.length; i++) {
                 float x = cardX[i], w = cardW[i];
-                boolean active = false;
+                boolean active = focused == 30 + i;
                 rect(x, 560, x + w, 560 + (active ? 188 : 180), active ? 20 : 18,
                     i == 0 ? 0xB51E293B : 0x7D1E293B);
                 if (i < featuredBackdrops.size() && featuredBackdrops.get(i) != null) {
@@ -319,7 +317,7 @@ public class MainActivity extends Activity {
                     cardClip.addRoundRect(x, 560, x + w, 740, 18, 18, Path.Direction.CW);
                     c.clipPath(cardClip);
                     p.setAlpha(255); p.setFilterBitmap(true);
-                    c.drawBitmap(featuredBackdrops.get(i), null, new RectF(x, 560, x + w, 740), p);
+                    drawCenterCrop(featuredBackdrops.get(i), new RectF(x, 560, x + w, 740));
                     reset();
                     p.setShader(new LinearGradient(x, 620, x, 740, new int[]{0x00000000, 0xDD05070C}, null, Shader.TileMode.CLAMP));
                     c.drawRect(x, 560, x + w, 740, p);
@@ -371,6 +369,17 @@ public class MainActivity extends Activity {
                     int[] starts = {728,873,1055,1205,1347}; int[] ends = {793,975,1125,1267,1455};
                     for (int i=0;i<5;i++) if (x>=starts[i] && x<=ends[i]) { selectedCategory=i; focused=i; invalidate(); return true; }
                 }
+                if (y >= 555 && y <= 755 && x >= 72) {
+                    float[] starts = {72, 447, 802, 1145, 1508};
+                    float[] widths = {355, 332, 332, 332, 332};
+                    for (int i = 0; i < starts.length; i++) {
+                        if (x >= starts[i] && x <= starts[i] + widths[i]) {
+                            focused = 30 + i;
+                            invalidate();
+                            return true;
+                        }
+                    }
+                }
                 if (y >= 845 && y <= 980 && x >= 72) {
                     int idx = appScroll + Math.max(0, Math.min(7, (int)((x-72)/(218))));
                     if (idx < installedApps.size()) { focused=100+idx; launchApp(idx); return true; }
@@ -385,7 +394,8 @@ public class MainActivity extends Activity {
                     int idx = focused - 100;
                     if (idx > 0) { focused--; if (idx - 1 < appScroll) appScroll = Math.max(0, idx - 1); }
                     else focused = 3;
-                } else if (focused == 20) focused = 4;
+                } else if (focused >= 30 && focused <= 34) focused = focused == 30 ? 34 : focused - 1;
+                else if (focused == 20) focused = 4;
                 else if (focused == 21) focused = 22;
                 else if (focused == 22) focused = 20;
                 else if (focused >= 0 && focused < 5) focused = focused == 0 ? 21 : focused - 1;
@@ -396,7 +406,8 @@ public class MainActivity extends Activity {
                 if (focused >= 100) {
                     int idx = focused - 100;
                     if (idx < installedApps.size() - 1) { focused++; if (idx + 1 >= appScroll + 8) appScroll++; }
-                } else if (focused == 20) focused = 22;
+                } else if (focused >= 30 && focused <= 34) focused = focused == 34 ? 30 : focused + 1;
+                else if (focused == 20) focused = 22;
                 else if (focused == 21) focused = 0;
                 else if (focused == 22) focused = 21;
                 else if (focused >= 0 && focused < 5) focused = focused == 4 ? 20 : focused + 1;
@@ -404,12 +415,15 @@ public class MainActivity extends Activity {
                 invalidate(); return true;
             }
             if (key == KeyEvent.KEYCODE_DPAD_DOWN) {
-                if (focused < 5) { focused = installedApps.isEmpty() ? 20 : 100 + Math.min(appScroll, installedApps.size()-1); }
+                if (focused >= 30 && focused <= 34) focused = installedApps.isEmpty() ? 20 : 100 + Math.min(appScroll, installedApps.size()-1);
+                else if (focused >= 100) return true;
+                else if (focused >= 0 && focused < 5) focused = 30 + focused;
                 else if (focused == 20 || focused == 21 || focused == 22) focused = 0;
                 invalidate(); return true;
             }
             if (key == KeyEvent.KEYCODE_DPAD_UP) {
-                if (focused >= 100) focused = 0;
+                if (focused >= 100) focused = 30;
+                else if (focused >= 30 && focused <= 34) focused = selectedCategory;
                 else if (focused == 0) focused = 21;
                 else if (focused == 1 || focused == 2 || focused == 3 || focused == 4) focused = 0;
                 else focused = 0;
@@ -417,6 +431,10 @@ public class MainActivity extends Activity {
             }
             if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER) {
                 if (focused >= 100) launchApp(focused - 100);
+                else if (focused >= 30 && focused <= 34) {
+                    int index = focused - 30;
+                    if (index < featuredTitles.size()) Toast.makeText(a, featuredTitles.get(index), Toast.LENGTH_SHORT).show();
+                }
                 else if (focused == 20) ((MainActivity)a).showSettings();
                 else if (focused == 21) ((MainActivity)a).showSearch();
                 else if (focused == 22) ((MainActivity)a).chooseProfileImage();
@@ -467,6 +485,24 @@ public class MainActivity extends Activity {
                     });
                 }
             }, "PG-TMDB").start();
+        }
+
+        private void drawCenterCrop(Bitmap bitmap, RectF destination) {
+            if (bitmap == null || bitmap.isRecycled()) return;
+            float sourceRatio = (float) bitmap.getWidth() / bitmap.getHeight();
+            float destRatio = destination.width() / destination.height();
+            Rect source;
+            if (sourceRatio > destRatio) {
+                int cropWidth = Math.max(1, Math.round(bitmap.getHeight() * destRatio));
+                int left = (bitmap.getWidth() - cropWidth) / 2;
+                source = new Rect(left, 0, left + cropWidth, bitmap.getHeight());
+            } else {
+                int cropHeight = Math.max(1, Math.round(bitmap.getWidth() / destRatio));
+                int top = (bitmap.getHeight() - cropHeight) / 2;
+                source = new Rect(0, top, bitmap.getWidth(), top + cropHeight);
+            }
+            p.setFilterBitmap(true);
+            c.drawBitmap(bitmap, source, destination, p);
         }
 
         private byte[] httpGet(String address) throws Exception {
