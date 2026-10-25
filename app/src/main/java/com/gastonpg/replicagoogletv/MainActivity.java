@@ -206,28 +206,11 @@ public class MainActivity extends Activity {
                 BitmapFactory.Options logoOptions = new BitmapFactory.Options();
                 logoOptions.inScaled = false;
                 Bitmap decodedLogo = BitmapFactory.decodeResource(getResources(), R.drawable.pg_logo, logoOptions);
-                Bitmap logo = decodedLogo;
                 if (decodedLogo != null) {
-                    // Match the earlier version: remove only near-white background pixels.
-                    // Leave the silver PG artwork and every other pixel unchanged.
-                    Bitmap keyedLogo = Bitmap.createBitmap(decodedLogo.getWidth(), decodedLogo.getHeight(), Bitmap.Config.ARGB_8888);
-                    int[] pixels = new int[decodedLogo.getWidth() * decodedLogo.getHeight()];
-                    decodedLogo.getPixels(pixels, 0, decodedLogo.getWidth(), 0, 0, decodedLogo.getWidth(), decodedLogo.getHeight());
-                    for (int i = 0; i < pixels.length; i++) {
-                        int color = pixels[i];
-                        int a = Color.alpha(color);
-                        int red = Color.red(color), green = Color.green(color), blue = Color.blue(color);
-                        int min = Math.min(red, Math.min(green, blue));
-                        int max = Math.max(red, Math.max(green, blue));
-                        if (a > 0 && min >= 245 && max >= 245) {
-                            pixels[i] = Color.TRANSPARENT;
-                        }
-                    }
-                    keyedLogo.setPixels(pixels, 0, decodedLogo.getWidth(), 0, 0, decodedLogo.getWidth(), decodedLogo.getHeight());
-                    logo = keyedLogo;
+                    // Draw the supplied transparent PNG unchanged: no color keying or pixel edits.
                     p.setAlpha(255);
                     p.setFilterBitmap(true);
-                    c.drawBitmap(logo, null, new RectF(70, 39, 124, 97), p);
+                    c.drawBitmap(decodedLogo, null, new RectF(70, 39, 124, 97), p);
                     reset();
                 } else {
                     centerLabel("PG", 97, 80, 28, 0xFFFFFFFF, true);
