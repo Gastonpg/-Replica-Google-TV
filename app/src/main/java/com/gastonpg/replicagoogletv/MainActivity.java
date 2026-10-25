@@ -3,12 +3,16 @@ package com.gastonpg.replicagoogletv;
 import android.app.Activity;
 import android.os.Bundle;
 import android.graphics.*;
+import android.graphics.drawable.Drawable;
 import android.view.*;
 import android.content.*;
 import android.content.pm.*;
 import android.net.Uri;
 import java.io.InputStream;
 import java.util.*;
+import android.app.AlertDialog;
+import android.widget.EditText;
+import android.widget.Toast;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_PROFILE_IMAGE = 731;
@@ -32,6 +36,32 @@ public class MainActivity extends Activity {
         startActivityForResult(intent, REQUEST_PROFILE_IMAGE);
     }
 
+    private void showSettings() {
+        final EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("Clave API de TMDB (opcional)");
+        input.setText(getSharedPreferences("pg_launcher_preferences", MODE_PRIVATE).getString("tmdb_api_key", ""));
+        new AlertDialog.Builder(this).setTitle("Configuración de TV Launcher PG")
+            .setMessage("Guardá la clave de TMDB para conectar el catálogo.")
+            .setView(input)
+            .setNegativeButton("Cancelar", null)
+            .setNeutralButton("Actualizar apps", (d,w) -> { if(home!=null) home.refreshInstalledApps(); })
+            .setPositiveButton("Guardar", (d,w) -> getSharedPreferences("pg_launcher_preferences", MODE_PRIVATE).edit().putString("tmdb_api_key", input.getText().toString().trim()).apply())
+            .show();
+    }
+
+    private void showSearch() {
+        final EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("Buscar aplicación");
+        new AlertDialog.Builder(this).setTitle("Buscar")
+            .setView(input).setNegativeButton("Cancelar", null)
+            .setPositiveButton("Buscar", (d,w) -> {
+                String term = input.getText().toString().trim().toLowerCase(Locale.ROOT);
+                if (home != null) home.findApp(term);
+            }).show();
+    }
+
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_PROFILE_IMAGE && resultCode == RESULT_OK && data != null && data.getData() != null) {
@@ -52,16 +82,12 @@ public class MainActivity extends Activity {
         private float sx, sy;
         // Focus index 0-4: Seguir viendo; 5-13: apps.
         private int focused = 0;
+        private int selectedCategory = 0;
+        private int appScroll = 0;
+        private final ArrayList<ResolveInfo> installedApps = new ArrayList<>();
+        private final HashSet<String> excludedPackages = new HashSet<>(Arrays.asList("com.gastonpg.replicagoogletv"));
         private final String[] nav = {"Para ti", "Películas", "Series", "Apps", "Biblioteca"};
-        private final String[] apps = {"NETFLIX", "YouTube", "Disney+", "prime video", "max", "Spotify", "TCL CHANNEL", "YouTube Kids", "tv"};
-        private final int[] appColors = {
-            0xFF090909, 0xFFF7F7F7, 0xFF07132E, 0xFF071D32, 0xFF1018A0,
-            0xFF101010, 0xFFB92027, 0xFFFFFFFF, 0xFF080808
-        };
-        private final int[] appTextColors = {
-            0xFFE50914, 0xFF202020, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
-            0xFF1ED760, 0xFFFFFFFF, 0xFF202020, 0xFFFFFFFF
-        };
+        private String[] apps = new String[0];
         private final String[] continueTitles = {"", "", "", "", ""};
 
         TVHome(Activity activity) {
@@ -72,6 +98,7 @@ public class MainActivity extends Activity {
             setLayerType(View.LAYER_TYPE_SOFTWARE, null);
             String saved = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString(PROFILE_URI, null);
             if (saved != null) setProfileImage(Uri.parse(saved));
+            refreshInstalledApps();
         }
 
         void setProfileImage(Uri uri) {
@@ -219,7 +246,7 @@ public class MainActivity extends Activity {
                 centerLabel("PG", 97, 80, 28, 0xFFFFFFFF, true);
             }
             label("Gastón Puig", 140, 75, 18, 0xFFFFFFFF, true);
-            glass(502, 42, 672, 100, 29, false);
+            glass(502, 42, 672, 100, 29, focused == 21);
             label("⌕", 522, 79, 29, 0xFFDDEAFF, true);
             label("Buscar", 555, 77, 19, 0xFFE1E7EF, false);
 
@@ -227,13 +254,15 @@ public class MainActivity extends Activity {
             String[] navLabels = {"Para ti", "Películas", "Series", "Apps", "Biblioteca"};
             float[] widths = {65, 102, 70, 62, 108};
             for (int i = 0; i < navLabels.length; i++) {
-                int color = i == 0 ? 0xFFF5F8FC : 0xFFB0BAC9;
-                label(navLabels[i], nx, 75, 19, color, i == 0);
+                boolean activeNav = focused == i;
+                int color = (i == selectedCategory) ? 0xFFFFFFFF : 0xFFB0BAC9;
+                label(navLabels[i], nx, 75, 19, color, i == selectedCategory);
+                if (activeNav) glass(nx - 10, 43, nx + widths[i] + 10, 101, 18, true);
                 nx += widths[i] + 80;
             }
-            glass(1685, 46, 1735, 96, 25, false);
+            glass(1685, 46, 1735, 96, 25, focused == 20);
             centerLabel("⚙", 1710, 77, 23, 0xFFE8F0FA, true);
-            glass(1751, 46, 1801, 96, 25, false);
+            glass(1751, 46, 1801, 96, 25, focused == 22);
             drawProfileAvatar();
 
             // Hero surface: kept clean as in the reference, without invented marketing copy.
@@ -251,7 +280,7 @@ public class MainActivity extends Activity {
             }
 
             // Continue watching row.
-            label("Seguir viendo", 80, 541, 24, 0xFFE2E8F0, true);
+            label(selectedCategory == 1 ? "Películas" : selectedCategory == 2 ? "Series" : selectedCategory == 3 ? "Aplicaciones instaladas" : selectedCategory == 4 ? "Biblioteca" : "Seguir viendo", 80, 541, 24, 0xFFE2E8F0, true);
             float[] cardX = {72, 447, 802, 1145, 1508};
             float[] cardW = {355, 332, 332, 332, 332};
             for (int i = 0; i < cardX.length; i++) {
@@ -269,52 +298,46 @@ public class MainActivity extends Activity {
                 if (active) glass(x, 560, x + w, 748, 20, true);
             }
 
-            // Apps row, including the partially clipped Apple TV card at the right edge.
+            // Installed applications are discovered from Android, not hard-coded.
             label("Tus apps", 80, 823, 24, 0xFFE2E8F0, true);
-            float[] appX = {72, 308, 526, 748, 974, 1188, 1408, 1628, 1860};
-            float[] appW = {210, 196, 196, 202, 190, 196, 196, 206, 60};
-            for (int i = 0; i < apps.length; i++) {
-                float x = appX[i], w = appW[i];
-                boolean active = focused == 5 + i;
-                rect(x, 852, x + w, 964, 16, appColors[i]);
-                if (i == 0) {
-                    centerLabel("NETFLIX", x + w / 2, 920, 23, appTextColors[i], true);
-                } else if (i == 1) {
-                    centerLabel("You", x + w / 2, 904, 21, 0xFF252525, true);
-                    centerLabel("▶Tube", x + w / 2, 930, 21, 0xFF252525, true);
-                    rect(x + w/2 - 20, 882, x + w/2 + 20, 910, 7, 0xFFE62117);
-                    centerLabel("▶", x + w/2, 902, 15, 0xFFFFFFFF, true);
-                } else if (i == 2) {
-                    centerLabel("Disney+", x + w / 2, 917, 23, appTextColors[i], true);
-                } else if (i == 3) {
-                    centerLabel("prime video", x + w / 2, 916, 21, appTextColors[i], true);
-                    centerLabel("⌣", x + w / 2, 935, 18, 0xFF39B7F2, true);
-                } else if (i == 4) {
-                    centerLabel("max", x + w / 2, 924, 37, 0xFFFFFFFF, true);
-                } else if (i == 5) {
-                    centerLabel("Spotify", x + w / 2, 920, 25, appTextColors[i], true);
-                } else if (i == 6) {
-                    centerLabel("TCL", x + w / 2, 913, 24, appTextColors[i], true);
-                    centerLabel("CHANNEL", x + w / 2, 934, 13, appTextColors[i], true);
-                } else if (i == 7) {
-                    centerLabel("YouTube", x + w / 2, 908, 19, 0xFF242424, true);
-                    centerLabel("Kids", x + w / 2, 932, 21, 0xFF242424, true);
-                } else {
-                    centerLabel("tv", x + w / 2, 920, 24, 0xFFFFFFFF, true);
-                }
-                if (active) glass(x - 2, 850, x + w + 2, 966, 17, true);
+            float appCardW = 196, gap = 22, appY = 852, appH = 112;
+            int visibleCount = 8;
+            int maxScroll = Math.max(0, installedApps.size() - visibleCount);
+            appScroll = Math.max(0, Math.min(appScroll, maxScroll));
+            for (int i = appScroll; i < installedApps.size() && i < appScroll + visibleCount; i++) {
+                float x = 72 + (i - appScroll) * (appCardW + gap);
+                boolean active = focused == 100 + i;
+                rect(x, appY, x + appCardW, appY + appH, 16, 0xFF111A28);
+                try {
+                    Drawable icon = installedApps.get(i).loadIcon(a.getPackageManager());
+                    Bitmap iconBitmap = drawableToBitmap(icon, 54, 54);
+                    c.drawBitmap(iconBitmap, null, new RectF(x + appCardW/2 - 27, appY + 12, x + appCardW/2 + 27, appY + 66), p);
+                } catch (Exception ignored) { }
+                String appName = apps[i];
+                p.setTextSize(16);
+                while (p.measureText(appName) > appCardW - 18 && appName.length() > 4) appName = appName.substring(0, appName.length()-1);
+                centerLabel(appName, x + appCardW/2, appY + 94, 16, 0xFFF4F7FC, true);
+                if (active) glass(x - 2, appY - 2, x + appCardW + 2, appY + appH + 2, 17, true);
             }
-
+            if (installedApps.isEmpty()) {
+                label("No se encontraron aplicaciones iniciables", 82, 900, 20, 0xFFE1E7EF, false);
+            }
             c.restore();
         }
 
         @Override public boolean onTouchEvent(android.view.MotionEvent event) {
-            if (event.getAction() == android.view.MotionEvent.ACTION_UP) {
-                float x = event.getX() / sx;
-                float y = event.getY() / sy;
-                if (x >= 1745 && x <= 1810 && y >= 40 && y <= 105) {
-                    ((MainActivity) a).chooseProfileImage();
-                    return true;
+            if (event.getAction() == MotionEvent.ACTION_UP) {
+                float x = event.getX() / sx, y = event.getY() / sy;
+                if (y >= 40 && y <= 110 && x >= 1680 && x <= 1740) { focused = 20; ((MainActivity)a).showSettings(); invalidate(); return true; }
+                if (y >= 40 && y <= 110 && x >= 500 && x <= 680) { focused = 21; ((MainActivity)a).showSearch(); invalidate(); return true; }
+                if (y >= 40 && y <= 110 && x >= 1745 && x <= 1810) { focused = 22; ((MainActivity) a).chooseProfileImage(); invalidate(); return true; }
+                if (y >= 35 && y <= 115 && x >= 720 && x <= 1600) {
+                    int[] starts = {728,873,1055,1205,1347}; int[] ends = {793,975,1125,1267,1455};
+                    for (int i=0;i<5;i++) if (x>=starts[i] && x<=ends[i]) { selectedCategory=i; focused=i; invalidate(); return true; }
+                }
+                if (y >= 845 && y <= 980 && x >= 72) {
+                    int idx = appScroll + Math.max(0, Math.min(7, (int)((x-72)/(218)));
+                    if (idx < installedApps.size()) { focused=100+idx; launchApp(idx); return true; }
                 }
             }
             return true;
@@ -322,57 +345,87 @@ public class MainActivity extends Activity {
 
         @Override public boolean onKeyDown(int key, KeyEvent event) {
             if (key == KeyEvent.KEYCODE_DPAD_LEFT) {
-                if (focused == 0) focused = 4;
-                else if (focused >= 5 && focused <= 13) focused = focused == 5 ? 13 : focused - 1;
-                else focused--;
+                if (focused >= 100) {
+                    int idx = focused - 100;
+                    if (idx > 0) { focused--; if (idx - 1 < appScroll) appScroll = Math.max(0, idx - 1); }
+                    else focused = 3;
+                } else if (focused == 20) focused = 4;
+                else if (focused == 21) focused = 0;
+                else if (focused == 22) focused = 20;
+                else focused = (focused + 4) % 5;
                 invalidate(); return true;
             }
             if (key == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                if (focused >= 0 && focused <= 4) focused = (focused + 1) % 5;
-                else focused = focused == 13 ? 5 : focused + 1;
+                if (focused >= 100) {
+                    int idx = focused - 100;
+                    if (idx < installedApps.size() - 1) { focused++; if (idx + 1 >= appScroll + 8) appScroll++; }
+                } else if (focused == 20) focused = 22;
+                else if (focused == 21) focused = 1;
+                else if (focused == 22) focused = 21;
+                else focused = (focused + 1) % 5;
                 invalidate(); return true;
             }
             if (key == KeyEvent.KEYCODE_DPAD_DOWN) {
-                if (focused <= 4) focused = 5;
+                if (focused < 5) { focused = installedApps.isEmpty() ? 20 : 100 + Math.min(appScroll, installedApps.size()-1); }
+                else if (focused == 20 || focused == 21 || focused == 22) focused = 0;
                 invalidate(); return true;
             }
             if (key == KeyEvent.KEYCODE_DPAD_UP) {
-                if (focused >= 5) focused = 0;
+                if (focused >= 100) focused = 0;
+                else if (focused == 0) focused = 21;
+                else if (focused == 1 || focused == 2 || focused == 3 || focused == 4) focused = 0;
+                else focused = 0;
                 invalidate(); return true;
             }
             if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER) {
-                if (focused >= 5) launchApp(focused - 5);
-                else if (focused == 4) ((MainActivity) a).chooseProfileImage();
+                if (focused >= 100) launchApp(focused - 100);
+                else if (focused == 20) ((MainActivity)a).showSettings();
+                else if (focused == 21) ((MainActivity)a).showSearch();
+                else if (focused == 22) ((MainActivity)a).chooseProfileImage();
+                else { selectedCategory = focused; if (selectedCategory == 3) refreshInstalledApps(); invalidate(); }
                 return true;
             }
             return super.onKeyDown(key, event);
         }
 
-        private void launchApp(int index) {
-            if (index < 0 || index >= apps.length) return;
-            PackageManager pm = a.getPackageManager();
-            String[] packages = {
-                "com.netflix.ninja",
-                "com.google.android.youtube.tv",
-                "com.disney.disneyplus",
-                "com.amazon.amazonvideo.livingroom",
-                "com.hbo.hbonow",
-                "com.spotify.tv.android",
-                "",
-                "com.google.android.youtube.tvkids",
-                "com.apple.atve.androidtv.appletv"
-            };
-            Intent intent = packages[index].isEmpty() ? null : pm.getLaunchIntentForPackage(packages[index]);
-            if (intent == null && index == 6) {
-                for (ApplicationInfo info : pm.getInstalledApplications(0)) {
-                    String label = String.valueOf(pm.getApplicationLabel(info)).toLowerCase(Locale.ROOT);
-                    if (label.contains("tcl channel")) { intent = pm.getLaunchIntentForPackage(info.packageName); if (intent != null) break; }
-                }
-            }
-            if (intent == null && index == 1) intent = pm.getLaunchIntentForPackage("com.google.android.youtube");
-            if (intent != null) {
-                try { a.startActivity(intent); } catch (Exception ignored) { }
-            }
+        void findApp(String term) {
+            if (term.isEmpty()) return;
+            for (int i=0;i<apps.length;i++) if (apps[i].toLowerCase(Locale.ROOT).contains(term)) { focused=100+i; appScroll=Math.max(0, Math.min(i, Math.max(0, apps.length-8))); invalidate(); return; }
+            Toast.makeText(a, "No se encontró la aplicación", Toast.LENGTH_SHORT).show();
         }
-    }
+
+        private void refreshInstalledApps() {
+            installedApps.clear();
+            Intent query = new Intent(Intent.ACTION_MAIN, null);
+            query.addCategory(Intent.CATEGORY_LAUNCHER);
+            PackageManager pm = a.getPackageManager();
+            List<ResolveInfo> found = pm.queryIntentActivities(query, 0);
+            Collections.sort(found, (left, right) -> String.valueOf(left.loadLabel(pm)).compareToIgnoreCase(String.valueOf(right.loadLabel(pm))));
+            for (ResolveInfo info : found) {
+                if (info.activityInfo == null || excludedPackages.contains(info.activityInfo.packageName)) continue;
+                installedApps.add(info);
+            }
+            apps = new String[installedApps.size()];
+            for (int i=0;i<installedApps.size();i++) apps[i] = String.valueOf(installedApps.get(i).loadLabel(pm));
+            invalidate();
+        }
+
+        private Bitmap drawableToBitmap(Drawable drawable, int width, int height) {
+            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            Canvas target = new Canvas(bitmap);
+            drawable.setBounds(0, 0, width, height);
+            drawable.draw(target);
+            return bitmap;
+        }
+
+        private void launchApp(int index) {
+            if (index < 0 || index >= installedApps.size()) return;
+            ResolveInfo info = installedApps.get(index);
+            Intent intent = new Intent(Intent.ACTION_MAIN);
+            intent.addCategory(Intent.CATEGORY_LAUNCHER);
+            intent.setClassName(info.activityInfo.packageName, info.activityInfo.name);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try { a.startActivity(intent); }
+            catch (Exception e) { Toast.makeText(a, "No se pudo abrir " + apps[index], Toast.LENGTH_SHORT).show(); }
+        }    }
 }
