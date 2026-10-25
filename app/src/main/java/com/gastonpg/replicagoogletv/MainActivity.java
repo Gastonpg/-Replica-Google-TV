@@ -167,7 +167,7 @@ public class MainActivity extends Activity {
                 String youtubeKey = prefs.getString("youtube_api_key", "").trim();
                 if (!key.isEmpty()) loadTmdb(key);
                 if (!youtubeKey.isEmpty()) loadYoutube(youtubeKey);
-                catalogHandler.postDelayed(this, 30L * 60L * 1000L);
+                catalogHandler.postDelayed(this, 50L * 1000L);
             }
         };
         private final ArrayList<Bitmap> appIconBitmaps = new ArrayList<>();
@@ -208,11 +208,14 @@ public class MainActivity extends Activity {
             String saved = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString(PROFILE_URI, null);
             if (saved != null) setProfileImage(Uri.parse(saved));
             refreshInstalledApps();
-            String tmdbKey = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("tmdb_api_key", "").trim();
+            android.content.SharedPreferences catalogPrefs = a.getSharedPreferences(PREFS, MODE_PRIVATE);
+            String tmdbKey = catalogPrefs.getString("tmdb_api_key", "").trim();
+            String youtubeKey = catalogPrefs.getString("youtube_api_key", "").trim();
             if (!tmdbKey.isEmpty()) loadTmdb(tmdbKey);
+            if (!youtubeKey.isEmpty()) loadYoutube(youtubeKey);
             catalogHandler.postDelayed(catalogRotation, 6000L);
             catalogHandler.postDelayed(catalogSourceRotation, 20000L);
-            catalogHandler.postDelayed(catalogRefresh, 30L * 60L * 1000L);
+            catalogHandler.postDelayed(catalogRefresh, 50L * 1000L);
             catalogHandler.removeCallbacks(particleAnimation);
             catalogHandler.postDelayed(particleAnimation, 33L);
         }
@@ -687,6 +690,8 @@ public class MainActivity extends Activity {
                         catch (Exception ignored) { images.add(null); }
                     }
                     a.runOnUiThread(() -> {
+                        youtubeFeaturedBackdrops.clear();
+                        youtubeFeaturedTitles.clear();
                         int added = 0;
                         for (int i = 0; i < images.size(); i++) {
                             Bitmap image = images.get(i);
@@ -697,16 +702,9 @@ public class MainActivity extends Activity {
                         }
                         if (added > 0) {
                             applyActiveFeaturedCatalog();
-                            if (heroBackdrop == null && !heroRotationBackdrops.isEmpty()) {
-                                heroRotationIndex = 0;
-                                heroBackdrop = heroRotationBackdrops.get(0);
-                                refreshBlurredHero();
-                            }
                         }
                         youtubeLoading = false;
                         invalidate();
-                        Toast.makeText(a, added > 0 ? "Videos de YouTube agregados al catálogo" : "YouTube no devolvió miniaturas válidas",
-                            Toast.LENGTH_SHORT).show();
                     });
                 } catch (Exception e) {
                     a.runOnUiThread(() -> {
