@@ -148,9 +148,15 @@ public class MainActivity extends Activity {
         };
         private final Runnable catalogRotation = new Runnable() {
             @Override public void run() {
-                if (heroRotationBackdrops.size() > 1) {
-                    heroRotationIndex = (heroRotationIndex + 1) % heroRotationBackdrops.size();
-                    heroBackdrop = heroRotationBackdrops.get(heroRotationIndex);
+                ArrayList<Bitmap> activeHeroes = showingYoutubeCatalog && !youtubeFeaturedBackdrops.isEmpty()
+                    ? youtubeFeaturedBackdrops : heroRotationBackdrops;
+                if (activeHeroes.size() > 1) {
+                    heroRotationIndex = (heroRotationIndex + 1) % activeHeroes.size();
+                    heroBackdrop = activeHeroes.get(heroRotationIndex);
+                    refreshBlurredHero();
+                } else if (!activeHeroes.isEmpty() && heroBackdrop != activeHeroes.get(0)) {
+                    heroRotationIndex = 0;
+                    heroBackdrop = activeHeroes.get(0);
                     refreshBlurredHero();
                 }
                 if (featuredBackdrops.size() > 1) {
@@ -653,6 +659,15 @@ public class MainActivity extends Activity {
             featuredTitles.clear();
             featuredTitles.addAll(sourceTitles);
             catalogPosterIndex = 0;
+
+            // Keep the large cinematic background synchronized with the active catalog.
+            ArrayList<Bitmap> activeHeroes = showingYoutubeCatalog && !youtubeFeaturedBackdrops.isEmpty()
+                ? youtubeFeaturedBackdrops : heroRotationBackdrops;
+            if (!activeHeroes.isEmpty()) {
+                heroRotationIndex = 0;
+                heroBackdrop = activeHeroes.get(0);
+                refreshBlurredHero();
+            }
         }
 
         void loadYoutube(String apiKey) {
