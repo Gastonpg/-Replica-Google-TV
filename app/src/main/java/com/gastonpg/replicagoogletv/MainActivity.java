@@ -43,6 +43,30 @@ public class MainActivity extends Activity {
         startActivityForResult(intent, REQUEST_PROFILE_IMAGE);
     }
 
+    private void showPGMenu() {
+        final String[] options = {"Ajustes del TV Box", "Configuración de TV Launcher PG", "Cambiar imagen de perfil"};
+        new AlertDialog.Builder(this)
+            .setTitle("Gastón Puig · PG")
+            .setItems(options, (dialog, which) -> {
+                if (which == 0) {
+                    try {
+                        Intent settings = new Intent(android.provider.Settings.ACTION_SETTINGS);
+                        settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(settings);
+                    } catch (Exception first) {
+                        try { startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS)); }
+                        catch (Exception second) {
+                            Toast.makeText(this, "El sistema no permite abrir Ajustes", Toast.LENGTH_LONG).show();
+                        }
+                    }
+                } else if (which == 1) {
+                    showSettings();
+                } else if (which == 2 && home != null) {
+                    home.requestProfileImage();
+                }
+            }).show();
+    }
+
     private void showSettings() {
         android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         android.widget.LinearLayout panel = new android.widget.LinearLayout(this);
@@ -225,6 +249,8 @@ public class MainActivity extends Activity {
             catalogHandler.removeCallbacks(particleAnimation);
             catalogHandler.postDelayed(particleAnimation, 33L);
         }
+
+        void requestProfileImage() { ((MainActivity)a).chooseProfileImage(); }
 
         void setProfileImage(Uri uri) {
             try (InputStream stream = a.getContentResolver().openInputStream(uri)) {
@@ -452,6 +478,7 @@ public class MainActivity extends Activity {
                 centerLabel("PG", 97, 80, 28, 0xFFFFFFFF, true);
             }
             label("Gastón Puig", 140, 75, 18, 0xFFFFFFFF, true);
+            if (focused == 23) label("⚙", 385, 76, 20, 0xFFFFFFFF, true);
             glass(502, 42, 672, 100, 29, focused == 21);
             label("⌕", 522, 79, 29, 0xFFDDEAFF, true);
             label("Buscar", 555, 77, 19, 0xFFE1E7EF, false);
@@ -466,6 +493,7 @@ public class MainActivity extends Activity {
                 if (activeNav) glass(nx - 10, 43, nx + widths[i] + 10, 101, 18, true);
                 nx += widths[i] + 80;
             }
+            glass(60, 32, 430, 104, 20, focused == 23);
             glass(1685, 46, 1735, 96, 25, focused == 20);
             centerLabel("⚙", 1710, 77, 23, 0xFFE8F0FA, true);
             glass(1751, 46, 1801, 96, 25, focused == 22);
@@ -561,6 +589,7 @@ public class MainActivity extends Activity {
         @Override public boolean onTouchEvent(android.view.MotionEvent event) {
             if (event.getAction() == MotionEvent.ACTION_UP) {
                 float x = event.getX() / sx, y = event.getY() / sy;
+                if (y >= 30 && y <= 115 && x >= 55 && x <= 450) { ((MainActivity)a).showPGMenu(); return true; }
                 if (y >= 40 && y <= 110 && x >= 1680 && x <= 1740) { focused = 20; ((MainActivity)a).showSettings(); invalidate(); return true; }
                 if (y >= 40 && y <= 110 && x >= 500 && x <= 680) { focused = 21; ((MainActivity)a).showSearch(); invalidate(); return true; }
                 if (y >= 40 && y <= 110 && x >= 1745 && x <= 1810) { focused = 22; ((MainActivity) a).chooseProfileImage(); invalidate(); return true; }
@@ -595,7 +624,8 @@ public class MainActivity extends Activity {
                     else focused = 3;
                 } else if (focused >= 30 && focused <= 34) focused = focused == 30 ? 34 : focused - 1;
                 else if (focused == 20) focused = 4;
-                else if (focused == 21) focused = 22;
+                else if (focused == 21) focused = 23;
+                else if (focused == 23) focused = 22;
                 else if (focused == 22) focused = 20;
                 else if (focused >= 0 && focused < 5) focused = focused == 0 ? 21 : focused - 1;
                 else focused = 0;
@@ -609,6 +639,7 @@ public class MainActivity extends Activity {
                 else if (focused == 20) focused = 22;
                 else if (focused == 21) focused = 0;
                 else if (focused == 22) focused = 21;
+                else if (focused == 23) focused = 21;
                 else if (focused >= 0 && focused < 5) focused = focused == 4 ? 20 : focused + 1;
                 else focused = 0;
                 invalidate(); return true;
@@ -617,7 +648,7 @@ public class MainActivity extends Activity {
                 if (focused >= 30 && focused <= 34) focused = installedApps.isEmpty() ? 20 : 100 + Math.min(appScroll, installedApps.size()-1);
                 else if (focused >= 100) return true;
                 else if (focused >= 0 && focused < 5) focused = 30 + focused;
-                else if (focused == 20 || focused == 21 || focused == 22) focused = 0;
+                else if (focused == 20 || focused == 21 || focused == 22 || focused == 23) focused = 0;
                 invalidate(); return true;
             }
             if (key == KeyEvent.KEYCODE_DPAD_UP) {
@@ -637,6 +668,7 @@ public class MainActivity extends Activity {
                 else if (focused == 20) ((MainActivity)a).showSettings();
                 else if (focused == 21) ((MainActivity)a).showSearch();
                 else if (focused == 22) ((MainActivity)a).chooseProfileImage();
+                else if (focused == 23) ((MainActivity)a).showPGMenu();
                 else { selectedCategory = focused; if (selectedCategory == 3) refreshInstalledApps(); invalidate(); }
                 return true;
             }
