@@ -336,7 +336,7 @@ public class MainActivity extends Activity {
                     for (int i=0;i<5;i++) if (x>=starts[i] && x<=ends[i]) { selectedCategory=i; focused=i; invalidate(); return true; }
                 }
                 if (y >= 845 && y <= 980 && x >= 72) {
-                    int idx = appScroll + Math.max(0, Math.min(7, (int)((x-72)/(218)));
+                    int idx = appScroll + Math.max(0, Math.min(7, (int)((x-72)/(218))));
                     if (idx < installedApps.size()) { focused=100+idx; launchApp(idx); return true; }
                 }
             }
@@ -427,5 +427,6 @@ public class MainActivity extends Activity {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             try { a.startActivity(intent); }
             catch (Exception e) { Toast.makeText(a, "No se pudo abrir " + apps[index], Toast.LENGTH_SHORT).show(); }
-        }    }
+        }
+    }
 }
