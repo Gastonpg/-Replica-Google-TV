@@ -117,9 +117,35 @@ public class MainActivity extends Activity {
         private int heroRotationIndex = 0;
         private final ArrayList<Bitmap> featuredBackdrops = new ArrayList<>();
         private final ArrayList<String> featuredTitles = new ArrayList<>();
+        private final ArrayList<Bitmap> tmdbFeaturedBackdrops = new ArrayList<>();
+        private final ArrayList<String> tmdbFeaturedTitles = new ArrayList<>();
+        private final ArrayList<Bitmap> youtubeFeaturedBackdrops = new ArrayList<>();
+        private final ArrayList<String> youtubeFeaturedTitles = new ArrayList<>();
+        private boolean showingYoutubeCatalog = false;
+        private int catalogPosterIndex = 0;
         private volatile boolean tmdbLoading = false;
         private volatile boolean youtubeLoading = false;
         private final Handler catalogHandler = new Handler(Looper.getMainLooper());
+        private final Runnable catalogSourceRotation = new Runnable() {
+            @Override public void run() {
+                boolean hasTmdb = !tmdbFeaturedBackdrops.isEmpty();
+                boolean hasYoutube = !youtubeFeaturedBackdrops.isEmpty();
+                if (hasTmdb && hasYoutube) {
+                    showingYoutubeCatalog = !showingYoutubeCatalog;
+                    applyActiveFeaturedCatalog();
+                    invalidate();
+                } else if (hasYoutube) {
+                    showingYoutubeCatalog = true;
+                    applyActiveFeaturedCatalog();
+                    invalidate();
+                } else if (hasTmdb) {
+                    showingYoutubeCatalog = false;
+                    applyActiveFeaturedCatalog();
+                    invalidate();
+                }
+                catalogHandler.postDelayed(this, 20000L);
+            }
+        };
         private final Runnable catalogRotation = new Runnable() {
             @Override public void run() {
                 if (heroRotationBackdrops.size() > 1) {
@@ -182,6 +208,7 @@ public class MainActivity extends Activity {
             String tmdbKey = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("tmdb_api_key", "").trim();
             if (!tmdbKey.isEmpty()) loadTmdb(tmdbKey);
             catalogHandler.postDelayed(catalogRotation, 6000L);
+            catalogHandler.postDelayed(catalogSourceRotation, 20000L);
             catalogHandler.postDelayed(catalogRefresh, 30L * 60L * 1000L);
             catalogHandler.removeCallbacks(particleAnimation);
             catalogHandler.postDelayed(particleAnimation, 33L);
@@ -295,6 +322,7 @@ public class MainActivity extends Activity {
 
         @Override protected void onDetachedFromWindow() {
             catalogHandler.removeCallbacks(catalogRotation);
+            catalogHandler.removeCallbacks(catalogSourceRotation);
             catalogHandler.removeCallbacks(catalogRefresh);
             catalogHandler.removeCallbacks(particleAnimation);
             lastParticleFrame = 0L;
@@ -445,7 +473,7 @@ public class MainActivity extends Activity {
                 float x = cardX[i], w = cardW[i];
                 boolean active = focused == 30 + i;
                 // Shift the visible titles with the rotating backdrop so every connected API gets a turn.
-                int featuredIndex = featuredBackdrops.isEmpty() ? -1 : (heroRotationIndex + i) % featuredBackdrops.size();
+                int featuredIndex = featuredBackdrops.isEmpty() ? -1 : (catalogPosterIndex + i) % featuredBackdrops.size();
                 rect(x, 560, x + w, 560 + (active ? 188 : 180), active ? 20 : 18,
                     i == 0 ? 0xB51E293B : 0x7D1E293B);
                 if (featuredIndex >= 0 && featuredBackdrops.get(featuredIndex) != null) {
@@ -604,6 +632,23 @@ public class MainActivity extends Activity {
         }
 
 
+        private void applyActiveFeaturedCatalog() {
+            ArrayList<Bitmap> sourceImages = showingYoutubeCatalog && !youtubeFeaturedBackdrops.isEmpty()
+                ? youtubeFeaturedBackdrops : tmdbFeaturedBackdrops;
+            ArrayList<String> sourceTitles = showingYoutubeCatalog && !youtubeFeaturedTitles.isEmpty()
+                ? youtubeFeaturedTitles : tmdbFeaturedTitles;
+            if (sourceImages.isEmpty() && !youtubeFeaturedBackdrops.isEmpty()) {
+                sourceImages = youtubeFeaturedBackdrops;
+                sourceTitles = youtubeFeaturedTitles;
+                showingYoutubeCatalog = true;
+            }
+            featuredBackdrops.clear();
+            featuredBackdrops.addAll(sourceImages);
+            featuredTitles.clear();
+            featuredTitles.addAll(sourceTitles);
+            catalogPosterIndex = 0;
+        }
+
         void loadYoutube(String apiKey) {
             if (apiKey == null || apiKey.trim().isEmpty() || youtubeLoading) return;
             youtubeLoading = true;
@@ -643,15 +688,17 @@ public class MainActivity extends Activity {
                         for (int i = 0; i < images.size(); i++) {
                             Bitmap image = images.get(i);
                             if (image == null) continue;
-                            heroRotationBackdrops.add(image);
-                            featuredBackdrops.add(image);
-                            featuredTitles.add(titles.get(i));
+                            youtubeFeaturedBackdrops.add(image);
+                            youtubeFeaturedTitles.add(titles.get(i));
                             added++;
                         }
-                        if (heroBackdrop == null && !heroRotationBackdrops.isEmpty()) {
-                            heroRotationIndex = 0;
-                            heroBackdrop = heroRotationBackdrops.get(0);
-                            refreshBlurredHero();
+                        if (added > 0) {
+                            applyActiveFeaturedCatalog();
+                            if (heroBackdrop == null && !heroRotationBackdrops.isEmpty()) {
+                                heroRotationIndex = 0;
+                                heroBackdrop = heroRotationBackdrops.get(0);
+                                refreshBlurredHero();
+                            }
                         }
                         youtubeLoading = false;
                         invalidate();
@@ -699,8 +746,9 @@ public class MainActivity extends Activity {
                         heroRotationIndex = 0;
                         heroBackdrop = heroRotationBackdrops.get(0);
                         refreshBlurredHero();
-                        featuredBackdrops.clear(); featuredBackdrops.addAll(cards);
-                        featuredTitles.clear(); featuredTitles.addAll(titles);
+                        tmdbFeaturedBackdrops.clear(); tmdbFeaturedBackdrops.addAll(cards);
+                        tmdbFeaturedTitles.clear(); tmdbFeaturedTitles.addAll(titles);
+                        applyActiveFeaturedCatalog();
                         tmdbLoading = false; invalidate();
                         Toast.makeText(a, "Catálogo TMDB actualizado", Toast.LENGTH_SHORT).show();
                     });
