@@ -115,6 +115,21 @@ public class MainActivity extends Activity {
             }
         };
         private final ArrayList<Bitmap> appIconBitmaps = new ArrayList<>();
+
+        // Tiny procedural particles: drawn by the launcher itself to avoid video/texture overhead.
+        private static final class SnowParticle {
+            float x, y, radius, speed, drift, phase, alpha;
+        }
+        private final ArrayList<SnowParticle> snowParticles = new ArrayList<>();
+        private final Random particleRandom = new Random(7312026L);
+        private long lastParticleFrame = 0L;
+        private final Runnable particleAnimation = new Runnable() {
+            @Override public void run() {
+                advanceSnowParticles();
+                invalidate();
+                catalogHandler.postDelayed(this, 33L);
+            }
+        };
         private float sx, sy;
         // Focus index 0-4: Seguir viendo; 5-13: apps.
         private int focused = 0;
@@ -131,6 +146,7 @@ public class MainActivity extends Activity {
             a = activity;
             setFocusable(true);
             setFocusableInTouchMode(true);
+            initSnowParticles();
             // Keep hardware acceleration enabled; software rendering made every glass effect slow.
             try { logoBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.pg_logo); } catch (Exception ignored) { }
             String saved = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString(PROFILE_URI, null);
@@ -140,6 +156,8 @@ public class MainActivity extends Activity {
             if (!tmdbKey.isEmpty()) loadTmdb(tmdbKey);
             catalogHandler.postDelayed(catalogRotation, 6000L);
             catalogHandler.postDelayed(catalogRefresh, 30L * 60L * 1000L);
+            catalogHandler.removeCallbacks(particleAnimation);
+            catalogHandler.postDelayed(particleAnimation, 33L);
         }
 
         void setProfileImage(Uri uri) {
@@ -237,10 +255,68 @@ public class MainActivity extends Activity {
             reset();
         }
 
+        @Override protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            catalogHandler.removeCallbacks(particleAnimation);
+            lastParticleFrame = 0L;
+            catalogHandler.postDelayed(particleAnimation, 33L);
+        }
+
         @Override protected void onDetachedFromWindow() {
             catalogHandler.removeCallbacks(catalogRotation);
             catalogHandler.removeCallbacks(catalogRefresh);
+            catalogHandler.removeCallbacks(particleAnimation);
+            lastParticleFrame = 0L;
             super.onDetachedFromWindow();
+        }
+
+        private void initSnowParticles() {
+            // Sparse, soft white dust/snow; normalized to the launcher's 1920x1080 canvas.
+            for (int i = 0; i < 46; i++) {
+                SnowParticle particle = new SnowParticle();
+                particle.x = particleRandom.nextFloat() * 1920f;
+                particle.y = particleRandom.nextFloat() * 1080f;
+                particle.radius = 0.8f + particleRandom.nextFloat() * 1.7f;
+                if (i % 9 == 0) particle.radius += 0.8f;
+                particle.speed = 9f + particleRandom.nextFloat() * 20f;
+                particle.drift = -3.5f + particleRandom.nextFloat() * 7f;
+                particle.phase = particleRandom.nextFloat() * 6.28318f;
+                particle.alpha = 65f + particleRandom.nextFloat() * 125f;
+                snowParticles.add(particle);
+            }
+        }
+
+        private void advanceSnowParticles() {
+            long now = android.os.SystemClock.uptimeMillis();
+            float dt = lastParticleFrame == 0L ? 0.033f : Math.min(0.06f, (now - lastParticleFrame) / 1000f);
+            lastParticleFrame = now;
+            for (SnowParticle particle : snowParticles) {
+                particle.phase += dt * 0.45f;
+                particle.y += particle.speed * dt;
+                particle.x += (particle.drift + (float)Math.sin(particle.phase) * 2.2f) * dt;
+                if (particle.y > 1090f) {
+                    particle.y = -particleRandom.nextFloat() * 70f;
+                    particle.x = particleRandom.nextFloat() * 1920f;
+                }
+                if (particle.x < -8f) particle.x = 1928f;
+                else if (particle.x > 1928f) particle.x = -8f;
+            }
+        }
+
+        private void drawSnowParticles() {
+            // A few particles get a faint halo; most stay tiny to preserve legibility and speed.
+            for (int i = 0; i < snowParticles.size(); i++) {
+                SnowParticle particle = snowParticles.get(i);
+                int alpha = Math.max(35, Math.min(190,
+                    (int)(particle.alpha * (0.78f + 0.22f * (float)Math.sin(particle.phase * 1.7f)))));
+                reset();
+                p.setColor(Color.WHITE);
+                p.setAlpha(alpha / 3);
+                if (i % 9 == 0) c.drawCircle(particle.x, particle.y, particle.radius * 2.8f, p);
+                p.setAlpha(alpha);
+                c.drawCircle(particle.x, particle.y, particle.radius, p);
+            }
+            reset();
         }
 
         @Override protected void onDraw(Canvas canvas) {
@@ -284,6 +360,9 @@ public class MainActivity extends Activity {
                 new int[]{0x00000000, 0x557F8FA3}, null, Shader.TileMode.CLAMP));
             c.drawRect(0, 980, 1920, 1080, p);
             reset();
+
+            // PG Liquid Cinema: light snowfall/dust floats over the artwork, behind all UI.
+            drawSnowParticles();
 
             // Header: original PG logo artwork and plain Gastón Puig lettering.
             // No tile or capsule behind either element.
