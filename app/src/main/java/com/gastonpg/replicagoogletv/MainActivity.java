@@ -117,7 +117,8 @@ public class MainActivity extends Activity {
         private int heroRotationIndex = 0;
         private final ArrayList<Bitmap> featuredBackdrops = new ArrayList<>();
         private final ArrayList<String> featuredTitles = new ArrayList<>();
-        private volatile boolean tmdbLoading = false;\n        private volatile boolean youtubeLoading = false;
+        private volatile boolean tmdbLoading = false;
+        private volatile boolean youtubeLoading = false;
         private final Handler catalogHandler = new Handler(Looper.getMainLooper());
         private final Runnable catalogRotation = new Runnable() {
             @Override public void run() {
