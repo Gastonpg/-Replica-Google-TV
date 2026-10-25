@@ -152,8 +152,11 @@ public class MainActivity extends Activity {
                     heroRotationIndex = (heroRotationIndex + 1) % heroRotationBackdrops.size();
                     heroBackdrop = heroRotationBackdrops.get(heroRotationIndex);
                     refreshBlurredHero();
-                    invalidate();
                 }
+                if (featuredBackdrops.size() > 1) {
+                    catalogPosterIndex = (catalogPosterIndex + 1) % featuredBackdrops.size();
+                }
+                invalidate();
                 catalogHandler.postDelayed(this, 6000L);
             }
         };
