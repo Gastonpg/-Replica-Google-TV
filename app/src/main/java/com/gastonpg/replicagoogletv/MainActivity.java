@@ -79,6 +79,8 @@ public class MainActivity extends Activity {
         private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         private Canvas c;
         private Bitmap profileBitmap;
+        private Bitmap logoBitmap;
+        private final ArrayList<Bitmap> appIconBitmaps = new ArrayList<>();
         private float sx, sy;
         // Focus index 0-4: Seguir viendo; 5-13: apps.
         private int focused = 0;
@@ -95,7 +97,8 @@ public class MainActivity extends Activity {
             a = activity;
             setFocusable(true);
             setFocusableInTouchMode(true);
-            setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+            // Keep hardware acceleration enabled; software rendering made every glass effect slow.
+            try { logoBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.pg_logo); } catch (Exception ignored) { }
             String saved = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString(PROFILE_URI, null);
             if (saved != null) setProfileImage(Uri.parse(saved));
             refreshInstalledApps();
@@ -230,9 +233,7 @@ public class MainActivity extends Activity {
             // Header: original PG logo artwork and plain Gastón Puig lettering.
             // No tile or capsule behind either element.
             try {
-                BitmapFactory.Options logoOptions = new BitmapFactory.Options();
-                logoOptions.inScaled = false;
-                Bitmap decodedLogo = BitmapFactory.decodeResource(getResources(), R.drawable.pg_logo, logoOptions);
+                Bitmap decodedLogo = logoBitmap;
                 if (decodedLogo != null) {
                     // Draw the supplied transparent PNG unchanged: no color keying or pixel edits.
                     p.setAlpha(255);
@@ -285,7 +286,7 @@ public class MainActivity extends Activity {
             float[] cardW = {355, 332, 332, 332, 332};
             for (int i = 0; i < cardX.length; i++) {
                 float x = cardX[i], w = cardW[i];
-                boolean active = focused == i;
+                boolean active = false;
                 rect(x, 560, x + w, 560 + (active ? 188 : 180), active ? 20 : 18,
                     i == 0 ? 0xB51E293B : 0x7D1E293B);
                 // Fine internal light gradient gives the cards their frosted surface.
@@ -309,9 +310,8 @@ public class MainActivity extends Activity {
                 boolean active = focused == 100 + i;
                 rect(x, appY, x + appCardW, appY + appH, 16, 0xFF111A28);
                 try {
-                    Drawable icon = installedApps.get(i).loadIcon(a.getPackageManager());
-                    Bitmap iconBitmap = drawableToBitmap(icon, 54, 54);
-                    c.drawBitmap(iconBitmap, null, new RectF(x + appCardW/2 - 27, appY + 12, x + appCardW/2 + 27, appY + 66), p);
+                    Bitmap iconBitmap = appIconBitmaps.get(i);
+                    if (iconBitmap != null) c.drawBitmap(iconBitmap, null, new RectF(x + appCardW/2 - 27, appY + 12, x + appCardW/2 + 27, appY + 66), p);
                 } catch (Exception ignored) { }
                 String appName = apps[i];
                 p.setTextSize(16);
@@ -350,9 +350,10 @@ public class MainActivity extends Activity {
                     if (idx > 0) { focused--; if (idx - 1 < appScroll) appScroll = Math.max(0, idx - 1); }
                     else focused = 3;
                 } else if (focused == 20) focused = 4;
-                else if (focused == 21) focused = 0;
+                else if (focused == 21) focused = 22;
                 else if (focused == 22) focused = 20;
-                else focused = (focused + 4) % 5;
+                else if (focused >= 0 && focused < 5) focused = focused == 0 ? 21 : focused - 1;
+                else focused = 0;
                 invalidate(); return true;
             }
             if (key == KeyEvent.KEYCODE_DPAD_RIGHT) {
@@ -360,9 +361,10 @@ public class MainActivity extends Activity {
                     int idx = focused - 100;
                     if (idx < installedApps.size() - 1) { focused++; if (idx + 1 >= appScroll + 8) appScroll++; }
                 } else if (focused == 20) focused = 22;
-                else if (focused == 21) focused = 1;
+                else if (focused == 21) focused = 0;
                 else if (focused == 22) focused = 21;
-                else focused = (focused + 1) % 5;
+                else if (focused >= 0 && focused < 5) focused = focused == 4 ? 20 : focused + 1;
+                else focused = 0;
                 invalidate(); return true;
             }
             if (key == KeyEvent.KEYCODE_DPAD_DOWN) {
@@ -396,6 +398,7 @@ public class MainActivity extends Activity {
 
         private void refreshInstalledApps() {
             installedApps.clear();
+            appIconBitmaps.clear();
             Intent query = new Intent(Intent.ACTION_MAIN, null);
             query.addCategory(Intent.CATEGORY_LAUNCHER);
             PackageManager pm = a.getPackageManager();
@@ -406,7 +409,11 @@ public class MainActivity extends Activity {
                 installedApps.add(info);
             }
             apps = new String[installedApps.size()];
-            for (int i=0;i<installedApps.size();i++) apps[i] = String.valueOf(installedApps.get(i).loadLabel(pm));
+            for (int i=0;i<installedApps.size();i++) {
+                apps[i] = String.valueOf(installedApps.get(i).loadLabel(pm));
+                try { appIconBitmaps.add(drawableToBitmap(installedApps.get(i).loadIcon(pm), 54, 54)); }
+                catch (Exception ignored) { appIconBitmaps.add(null); }
+            }
             invalidate();
         }
 
