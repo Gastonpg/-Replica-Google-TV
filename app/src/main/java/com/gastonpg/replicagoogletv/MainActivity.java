@@ -711,6 +711,8 @@ public class MainActivity extends Activity {
                             added++;
                         }
                         if (added > 0) {
+                            // Ensure the YouTube catalog becomes visible at the next source switch.
+                            if (tmdbFeaturedBackdrops.isEmpty()) showingYoutubeCatalog = true;
                             applyActiveFeaturedCatalog();
                         }
                         youtubeLoading = false;
