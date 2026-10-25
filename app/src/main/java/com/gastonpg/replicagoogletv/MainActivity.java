@@ -99,7 +99,6 @@ public class MainActivity extends Activity {
                     featuredBackdrops.add(firstBitmap);
                     String firstTitle = featuredTitles.remove(0);
                     featuredTitles.add(firstTitle);
-                    if (featuredBackdrops.get(0) != null) heroBackdrop = featuredBackdrops.get(0);
                     invalidate();
                 }
                 catalogHandler.postDelayed(this, 18000L);
