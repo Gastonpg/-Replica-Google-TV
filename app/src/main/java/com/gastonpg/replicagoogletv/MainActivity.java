@@ -88,20 +88,22 @@ public class MainActivity extends Activity {
         private Bitmap profileBitmap;
         private Bitmap logoBitmap;
         private Bitmap heroBackdrop;
+        private Bitmap blurredHeroBackdrop;
+        private final ArrayList<Bitmap> heroRotationBackdrops = new ArrayList<>();
+        private int heroRotationIndex = 0;
         private final ArrayList<Bitmap> featuredBackdrops = new ArrayList<>();
         private final ArrayList<String> featuredTitles = new ArrayList<>();
         private volatile boolean tmdbLoading = false;
         private final Handler catalogHandler = new Handler(Looper.getMainLooper());
         private final Runnable catalogRotation = new Runnable() {
             @Override public void run() {
-                if (featuredBackdrops.size() > 1) {
-                    Bitmap firstBitmap = featuredBackdrops.remove(0);
-                    featuredBackdrops.add(firstBitmap);
-                    String firstTitle = featuredTitles.remove(0);
-                    featuredTitles.add(firstTitle);
+                if (heroRotationBackdrops.size() > 1) {
+                    heroRotationIndex = (heroRotationIndex + 1) % heroRotationBackdrops.size();
+                    heroBackdrop = heroRotationBackdrops.get(heroRotationIndex);
+                    refreshBlurredHero();
                     invalidate();
                 }
-                catalogHandler.postDelayed(this, 18000L);
+                catalogHandler.postDelayed(this, 6000L);
             }
         };
         private final Runnable catalogRefresh = new Runnable() {
@@ -136,7 +138,7 @@ public class MainActivity extends Activity {
             refreshInstalledApps();
             String tmdbKey = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("tmdb_api_key", "").trim();
             if (!tmdbKey.isEmpty()) loadTmdb(tmdbKey);
-            catalogHandler.postDelayed(catalogRotation, 18000L);
+            catalogHandler.postDelayed(catalogRotation, 6000L);
             catalogHandler.postDelayed(catalogRefresh, 30L * 60L * 1000L);
         }
 
@@ -365,12 +367,24 @@ public class MainActivity extends Activity {
             for (int i = appScroll; i < installedApps.size() && i < appScroll + visibleCount; i++) {
                 float x = 72 + (i - appScroll) * (appCardW + gap);
                 boolean active = focused == 100 + i;
-                // Frosted-glass background behind each app icon.
+                // Frosted-glass background: blur the cinematic image behind the app card.
+                c.save();
+                Path appClip = new Path();
+                appClip.addRoundRect(x, appY, x + appCardW, appY + appH, 16, 16, Path.Direction.CW);
+                c.clipPath(appClip);
+                if (blurredHeroBackdrop != null && !blurredHeroBackdrop.isRecycled()) {
+                    p.setAlpha(255);
+                    p.setFilterBitmap(true);
+                    c.drawBitmap(blurredHeroBackdrop, null, new RectF(0, 0, 1920, 1080), p);
+                } else {
+                    rect(x, appY, x + appCardW, appY + appH, 16, 0xAA182333);
+                }
                 reset();
                 p.setShader(new LinearGradient(x, appY, x, appY + appH,
-                    new int[]{0x55FFFFFF, 0x2AB9D8FF, 0x42101828}, null, Shader.TileMode.CLAMP));
+                    new int[]{0x66FFFFFF, 0x359CCBEA, 0x7A101828}, null, Shader.TileMode.CLAMP));
                 c.drawRoundRect(x, appY, x + appCardW, appY + appH, 16, 16, p);
                 reset();
+                c.restore();
                 p.setStyle(Paint.Style.STROKE);
                 p.setStrokeWidth(1.2f);
                 p.setColor(0x668DDCFF);
@@ -489,23 +503,27 @@ public class MainActivity extends Activity {
                     if (results == null || results.length() == 0) throw new Exception("TMDB no devolvió títulos");
                     ArrayList<String> titles = new ArrayList<>();
                     ArrayList<String> paths = new ArrayList<>();
-                    String heroPath = null;
                     for (int i = 0; i < results.length() && titles.size() < 5; i++) {
                         JSONObject item = results.optJSONObject(i);
                         if (item == null) continue;
                         String name = item.optString("title", item.optString("name", "Título"));
                         String backdrop = item.optString("backdrop_path", "");
                         if (backdrop.isEmpty() || backdrop.equals("null")) continue;
-                        if (heroPath == null) heroPath = backdrop;
                         titles.add(name); paths.add(backdrop);
                     }
-                    if (heroPath == null) throw new Exception("TMDB no devolvió imágenes");
-                    Bitmap hero = downloadBitmap("https://image.tmdb.org/t/p/original" + heroPath);
+                    if (paths.isEmpty()) throw new Exception("TMDB no devolvió imágenes");
+                    ArrayList<Bitmap> heroes = new ArrayList<>();
                     ArrayList<Bitmap> cards = new ArrayList<>();
-                    for (String path : paths) cards.add(downloadBitmap("https://image.tmdb.org/t/p/w780" + path));
+                    for (String path : paths) {
+                        heroes.add(downloadBitmap("https://image.tmdb.org/t/p/w1280" + path));
+                        cards.add(downloadBitmap("https://image.tmdb.org/t/p/w780" + path));
+                    }
                     a.runOnUiThread(() -> {
-                        if (heroBackdrop != null && !heroBackdrop.isRecycled()) heroBackdrop.recycle();
-                        heroBackdrop = hero;
+                        heroRotationBackdrops.clear();
+                        heroRotationBackdrops.addAll(heroes);
+                        heroRotationIndex = 0;
+                        heroBackdrop = heroRotationBackdrops.get(0);
+                        refreshBlurredHero();
                         featuredBackdrops.clear(); featuredBackdrops.addAll(cards);
                         featuredTitles.clear(); featuredTitles.addAll(titles);
                         tmdbLoading = false; invalidate();
@@ -518,6 +536,19 @@ public class MainActivity extends Activity {
                     });
                 }
             }, "PG-TMDB").start();
+        }
+
+        private void refreshBlurredHero() {
+            if (blurredHeroBackdrop != null && !blurredHeroBackdrop.isRecycled()) blurredHeroBackdrop.recycle();
+            blurredHeroBackdrop = null;
+            if (heroBackdrop == null || heroBackdrop.isRecycled()) return;
+            // Downsample heavily, then enlarge with filtering: a lightweight frosted-glass blur
+            // that also works on older Android TV boxes without RenderEffect (Android 12+).
+            int w = Math.max(1, heroBackdrop.getWidth() / 28);
+            int h = Math.max(1, heroBackdrop.getHeight() / 28);
+            Bitmap tiny = Bitmap.createScaledBitmap(heroBackdrop, w, h, true);
+            blurredHeroBackdrop = Bitmap.createScaledBitmap(tiny, w, h, true);
+            if (tiny != blurredHeroBackdrop && !tiny.isRecycled()) tiny.recycle();
         }
 
         private void drawCenterCrop(Bitmap bitmap, RectF destination) {
