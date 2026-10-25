@@ -9,6 +9,11 @@ import android.content.*;
 import android.content.pm.*;
 import android.net.Uri;
 import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import java.util.*;
 import android.app.AlertDialog;
 import android.widget.EditText;
@@ -46,7 +51,7 @@ public class MainActivity extends Activity {
             .setView(input)
             .setNegativeButton("Cancelar", null)
             .setNeutralButton("Actualizar apps", (d,w) -> { if(home!=null) home.refreshInstalledApps(); })
-            .setPositiveButton("Guardar", (d,w) -> getSharedPreferences("pg_launcher_preferences", MODE_PRIVATE).edit().putString("tmdb_api_key", input.getText().toString().trim()).apply())
+            .setPositiveButton("Guardar", (d,w) -> { String key = input.getText().toString().trim(); getSharedPreferences("pg_launcher_preferences", MODE_PRIVATE).edit().putString("tmdb_api_key", key).apply(); if (home != null) home.loadTmdb(key); })
             .show();
     }
 
@@ -80,6 +85,10 @@ public class MainActivity extends Activity {
         private Canvas c;
         private Bitmap profileBitmap;
         private Bitmap logoBitmap;
+        private Bitmap heroBackdrop;
+        private final ArrayList<Bitmap> featuredBackdrops = new ArrayList<>();
+        private final ArrayList<String> featuredTitles = new ArrayList<>();
+        private volatile boolean tmdbLoading = false;
         private final ArrayList<Bitmap> appIconBitmaps = new ArrayList<>();
         private float sx, sy;
         // Focus index 0-4: Seguir viendo; 5-13: apps.
@@ -102,6 +111,8 @@ public class MainActivity extends Activity {
             String saved = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString(PROFILE_URI, null);
             if (saved != null) setProfileImage(Uri.parse(saved));
             refreshInstalledApps();
+            String tmdbKey = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("tmdb_api_key", "").trim();
+            if (!tmdbKey.isEmpty()) loadTmdb(tmdbKey);
         }
 
         void setProfileImage(Uri uri) {
@@ -266,7 +277,20 @@ public class MainActivity extends Activity {
             glass(1751, 46, 1801, 96, 25, focused == 22);
             drawProfileAvatar();
 
-            // Hero surface: kept clean as in the reference, without invented marketing copy.
+            // TMDB backdrop inside the existing hero panel.
+            c.save();
+            Path heroClip = new Path();
+            heroClip.addRoundRect(73, 138, 1847, 480, 24, 24, Path.Direction.CW);
+            c.clipPath(heroClip);
+            if (heroBackdrop != null && !heroBackdrop.isRecycled()) {
+                p.setAlpha(255); p.setFilterBitmap(true);
+                c.drawBitmap(heroBackdrop, null, new RectF(73, 138, 1847, 480), p);
+                reset();
+                p.setShader(new LinearGradient(73, 138, 73, 480, new int[]{0x5520293A, 0x66303B4D, 0xC805070C}, null, Shader.TileMode.CLAMP));
+                c.drawRect(73, 138, 1847, 480, p);
+                reset();
+            }
+            c.restore();
             glass(73, 138, 1847, 480, 24, false);
             // Subtle light on the hero's right side to give the empty artwork panel depth.
             reset();
@@ -289,13 +313,25 @@ public class MainActivity extends Activity {
                 boolean active = false;
                 rect(x, 560, x + w, 560 + (active ? 188 : 180), active ? 20 : 18,
                     i == 0 ? 0xB51E293B : 0x7D1E293B);
-                // Fine internal light gradient gives the cards their frosted surface.
-                reset();
-                p.setShader(new LinearGradient(x, 560, x + w, 740,
-                    new int[]{0x2AFFFFFF, 0x101A2638, 0x20101828},
-                    null, Shader.TileMode.CLAMP));
-                c.drawRoundRect(x, 560, x + w, 560 + (active ? 188 : 180), active ? 20 : 18, active ? 20 : 18, p);
-                reset();
+                if (i < featuredBackdrops.size() && featuredBackdrops.get(i) != null) {
+                    c.save();
+                    Path cardClip = new Path();
+                    cardClip.addRoundRect(x, 560, x + w, 740, 18, 18, Path.Direction.CW);
+                    c.clipPath(cardClip);
+                    p.setAlpha(255); p.setFilterBitmap(true);
+                    c.drawBitmap(featuredBackdrops.get(i), null, new RectF(x, 560, x + w, 740), p);
+                    reset();
+                    p.setShader(new LinearGradient(x, 620, x, 740, new int[]{0x00000000, 0xDD05070C}, null, Shader.TileMode.CLAMP));
+                    c.drawRect(x, 560, x + w, 740, p);
+                    reset();
+                    c.restore();
+                    if (i < featuredTitles.size()) label(featuredTitles.get(i), x + 14, 718, 18, 0xFFFFFFFF, true);
+                } else {
+                    reset();
+                    p.setShader(new LinearGradient(x, 560, x + w, 740, new int[]{0x2AFFFFFF, 0x101A2638, 0x20101828}, null, Shader.TileMode.CLAMP));
+                    c.drawRoundRect(x, 560, x + w, 560 + (active ? 188 : 180), active ? 20 : 18, active ? 20 : 18, p);
+                    reset();
+                }
                 if (active) glass(x, 560, x + w, 748, 20, true);
             }
 
@@ -388,6 +424,68 @@ public class MainActivity extends Activity {
                 return true;
             }
             return super.onKeyDown(key, event);
+        }
+
+
+        void loadTmdb(String apiKey) {
+            if (apiKey == null || apiKey.trim().isEmpty() || tmdbLoading) return;
+            tmdbLoading = true;
+            new Thread(() -> {
+                try {
+                    String endpoint = "https://api.themoviedb.org/3/trending/all/week?api_key=" + java.net.URLEncoder.encode(apiKey.trim(), "UTF-8") + "&language=es-ES";
+                    JSONObject root = new JSONObject(new String(httpGet(endpoint), "UTF-8"));
+                    JSONArray results = root.optJSONArray("results");
+                    if (results == null || results.length() == 0) throw new Exception("TMDB no devolvió títulos");
+                    ArrayList<String> titles = new ArrayList<>();
+                    ArrayList<String> paths = new ArrayList<>();
+                    String heroPath = null;
+                    for (int i = 0; i < results.length() && titles.size() < 5; i++) {
+                        JSONObject item = results.optJSONObject(i);
+                        if (item == null) continue;
+                        String name = item.optString("title", item.optString("name", "Título"));
+                        String backdrop = item.optString("backdrop_path", "");
+                        if (backdrop.isEmpty() || backdrop.equals("null")) continue;
+                        if (heroPath == null) heroPath = backdrop;
+                        titles.add(name); paths.add(backdrop);
+                    }
+                    if (heroPath == null) throw new Exception("TMDB no devolvió imágenes");
+                    Bitmap hero = downloadBitmap("https://image.tmdb.org/t/p/original" + heroPath);
+                    ArrayList<Bitmap> cards = new ArrayList<>();
+                    for (String path : paths) cards.add(downloadBitmap("https://image.tmdb.org/t/p/w780" + path));
+                    a.runOnUiThread(() -> {
+                        if (heroBackdrop != null && !heroBackdrop.isRecycled()) heroBackdrop.recycle();
+                        heroBackdrop = hero;
+                        featuredBackdrops.clear(); featuredBackdrops.addAll(cards);
+                        featuredTitles.clear(); featuredTitles.addAll(titles);
+                        tmdbLoading = false; invalidate();
+                        Toast.makeText(a, "Catálogo TMDB actualizado", Toast.LENGTH_SHORT).show();
+                    });
+                } catch (Exception e) {
+                    a.runOnUiThread(() -> {
+                        tmdbLoading = false;
+                        Toast.makeText(a, "TMDB: revisá la clave y la conexión a internet", Toast.LENGTH_LONG).show();
+                    });
+                }
+            }, "PG-TMDB").start();
+        }
+
+        private byte[] httpGet(String address) throws Exception {
+            HttpURLConnection connection = (HttpURLConnection) new URL(address).openConnection();
+            connection.setConnectTimeout(10000);
+            connection.setReadTimeout(15000);
+            connection.setRequestMethod("GET");
+            try (InputStream input = connection.getInputStream(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[8192]; int count;
+                while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                return output.toByteArray();
+            } finally { connection.disconnect(); }
+        }
+
+        private Bitmap downloadBitmap(String address) throws Exception {
+            byte[] bytes = httpGet(address);
+            Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            if (bitmap == null) throw new Exception("Imagen no válida");
+            return bitmap;
         }
 
         void findApp(String term) {
