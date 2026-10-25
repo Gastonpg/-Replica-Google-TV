@@ -205,8 +205,26 @@ public class MainActivity extends Activity {
             try {
                 BitmapFactory.Options logoOptions = new BitmapFactory.Options();
                 logoOptions.inScaled = false;
-                Bitmap logo = BitmapFactory.decodeResource(getResources(), R.drawable.pg_logo, logoOptions);
-                if (logo != null) {
+                Bitmap decodedLogo = BitmapFactory.decodeResource(getResources(), R.drawable.pg_logo, logoOptions);
+                Bitmap logo = decodedLogo;
+                if (decodedLogo != null) {
+                    // Remove an opaque white canvas if the uploaded PNG contains one.
+                    // Keep the original PG artwork and all non-white pixels unchanged.
+                    Bitmap keyedLogo = Bitmap.createBitmap(decodedLogo.getWidth(), decodedLogo.getHeight(), Bitmap.Config.ARGB_8888);
+                    int[] pixels = new int[decodedLogo.getWidth() * decodedLogo.getHeight()];
+                    decodedLogo.getPixels(pixels, 0, decodedLogo.getWidth(), 0, 0, decodedLogo.getWidth(), decodedLogo.getHeight());
+                    for (int i = 0; i < pixels.length; i++) {
+                        int color = pixels[i];
+                        int a = Color.alpha(color);
+                        int red = Color.red(color), green = Color.green(color), blue = Color.blue(color);
+                        int min = Math.min(red, Math.min(green, blue));
+                        int max = Math.max(red, Math.max(green, blue));
+                        if (a > 0 && min >= 245 && max >= 245) {
+                            pixels[i] = Color.TRANSPARENT;
+                        }
+                    }
+                    keyedLogo.setPixels(pixels, 0, decodedLogo.getWidth(), 0, 0, decodedLogo.getWidth(), decodedLogo.getHeight());
+                    logo = keyedLogo;
                     p.setAlpha(255);
                     p.setColor(0xFFFFFFFF);
                     p.setFilterBitmap(true);
