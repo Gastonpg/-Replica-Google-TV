@@ -118,14 +118,6 @@ public class MainActivity extends Activity {
         }
 
         private void fill(int color) { reset(); p.setColor(color); }
-        private boolean isLightBackground(int color) {
-            if (Color.alpha(color) == 0) return true;
-            int red = Color.red(color), green = Color.green(color), blue = Color.blue(color);
-            int min = Math.min(red, Math.min(green, blue));
-            int max = Math.max(red, Math.max(green, blue));
-            return min >= 218 && max - min <= 24;
-        }
-
         private void rect(float l, float t, float r, float b, float radius, int color) {
             fill(color);
             c.drawRoundRect(l, t, r, b, radius, radius, p);
@@ -213,40 +205,9 @@ public class MainActivity extends Activity {
             try {
                 BitmapFactory.Options logoOptions = new BitmapFactory.Options();
                 logoOptions.inScaled = false;
-                Bitmap sourceLogo = BitmapFactory.decodeResource(getResources(), R.drawable.pg_logo, logoOptions);
-                if (sourceLogo != null) {
-                    // Clear only light background pixels connected to the image edges.
-                    // This preserves light/metallic details inside the PG artwork.
-                    int width = sourceLogo.getWidth();
-                    int height = sourceLogo.getHeight();
-                    int[] pixels = new int[width * height];
-                    sourceLogo.getPixels(pixels, 0, width, 0, 0, width, height);
-                    boolean[] seen = new boolean[pixels.length];
-                    int[] queue = new int[pixels.length];
-                    int head = 0, tail = 0;
-                    for (int x = 0; x < width; x++) {
-                        int top = x, bottom = (height - 1) * width + x;
-                        if (isLightBackground(pixels[top]) && !seen[top]) { seen[top] = true; queue[tail++] = top; }
-                        if (isLightBackground(pixels[bottom]) && !seen[bottom]) { seen[bottom] = true; queue[tail++] = bottom; }
-                    }
-                    for (int y = 0; y < height; y++) {
-                        int left = y * width, right = y * width + width - 1;
-                        if (isLightBackground(pixels[left]) && !seen[left]) { seen[left] = true; queue[tail++] = left; }
-                        if (isLightBackground(pixels[right]) && !seen[right]) { seen[right] = true; queue[tail++] = right; }
-                    }
-                    while (head < tail) {
-                        int index = queue[head++];
-                        pixels[index] = Color.TRANSPARENT;
-                        int x = index % width, y = index / width;
-                        if (x > 0) { int n = index - 1; if (!seen[n] && isLightBackground(pixels[n])) { seen[n] = true; queue[tail++] = n; } }
-                        if (x + 1 < width) { int n = index + 1; if (!seen[n] && isLightBackground(pixels[n])) { seen[n] = true; queue[tail++] = n; } }
-                        if (y > 0) { int n = index - width; if (!seen[n] && isLightBackground(pixels[n])) { seen[n] = true; queue[tail++] = n; } }
-                        if (y + 1 < height) { int n = index + width; if (!seen[n] && isLightBackground(pixels[n])) { seen[n] = true; queue[tail++] = n; } }
-                    }
-                    Bitmap logo = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-                    logo.setPixels(pixels, 0, width, 0, 0, width, height);
+                Bitmap logo = BitmapFactory.decodeResource(getResources(), R.drawable.pg_logo, logoOptions);
+                if (logo != null) {
                     p.setAlpha(255);
-                    p.setColor(0xFFFFFFFF);
                     p.setFilterBitmap(true);
                     c.drawBitmap(logo, null, new RectF(70, 39, 124, 97), p);
                     reset();
