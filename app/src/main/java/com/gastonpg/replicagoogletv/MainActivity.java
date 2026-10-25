@@ -44,27 +44,16 @@ public class MainActivity extends Activity {
     }
 
     private void showPGMenu() {
-        final String[] options = {"Ajustes del TV Box", "Configuración de TV Launcher PG", "Cambiar imagen de perfil"};
-        new AlertDialog.Builder(this)
-            .setTitle("Gastón Puig · PG")
-            .setItems(options, (dialog, which) -> {
-                if (which == 0) {
-                    try {
-                        Intent settings = new Intent(android.provider.Settings.ACTION_SETTINGS);
-                        settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(settings);
-                    } catch (Exception first) {
-                        try { startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS)); }
-                        catch (Exception second) {
-                            Toast.makeText(this, "El sistema no permite abrir Ajustes", Toast.LENGTH_LONG).show();
-                        }
-                    }
-                } else if (which == 1) {
-                    showSettings();
-                } else if (which == 2 && home != null) {
-                    home.requestProfileImage();
-                }
-            }).show();
+        // El logo PG abre directamente los ajustes reales del TV Box.
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));
+        } catch (Exception first) {
+            try {
+                startActivity(new Intent("android.settings.SETTINGS"));
+            } catch (Exception second) {
+                Toast.makeText(this, "El sistema no permite abrir Ajustes", Toast.LENGTH_LONG).show();
+            }
+        }
     }
 
     private void showSettings() {
@@ -478,7 +467,6 @@ public class MainActivity extends Activity {
                 centerLabel("PG", 97, 80, 28, 0xFFFFFFFF, true);
             }
             label("Gastón Puig", 140, 75, 18, 0xFFFFFFFF, true);
-            if (focused == 23) label("⚙", 385, 76, 20, 0xFFFFFFFF, true);
             glass(502, 42, 672, 100, 29, focused == 21);
             label("⌕", 522, 79, 29, 0xFFDDEAFF, true);
             label("Buscar", 555, 77, 19, 0xFFE1E7EF, false);
@@ -493,7 +481,6 @@ public class MainActivity extends Activity {
                 if (activeNav) glass(nx - 10, 43, nx + widths[i] + 10, 101, 18, true);
                 nx += widths[i] + 80;
             }
-            glass(60, 32, 430, 104, 20, focused == 23);
             glass(1685, 46, 1735, 96, 25, focused == 20);
             centerLabel("⚙", 1710, 77, 23, 0xFFE8F0FA, true);
             glass(1751, 46, 1801, 96, 25, focused == 22);
