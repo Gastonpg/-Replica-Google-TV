@@ -2,6 +2,8 @@ package com.gastonpg.replicagoogletv;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.graphics.*;
 import android.graphics.drawable.Drawable;
 import android.view.*;
@@ -89,6 +91,28 @@ public class MainActivity extends Activity {
         private final ArrayList<Bitmap> featuredBackdrops = new ArrayList<>();
         private final ArrayList<String> featuredTitles = new ArrayList<>();
         private volatile boolean tmdbLoading = false;
+        private final Handler catalogHandler = new Handler(Looper.getMainLooper());
+        private final Runnable catalogRotation = new Runnable() {
+            @Override public void run() {
+                if (featuredBackdrops.size() > 1) {
+                    Bitmap firstBitmap = featuredBackdrops.remove(0);
+                    featuredBackdrops.add(firstBitmap);
+                    String firstTitle = featuredTitles.remove(0);
+                    featuredTitles.add(firstTitle);
+                    if (featuredBackdrops.get(0) != null) heroBackdrop = featuredBackdrops.get(0);
+                    invalidate();
+                }
+                catalogHandler.postDelayed(this, 18000L);
+            }
+        };
+        private final Runnable catalogRefresh = new Runnable() {
+            @Override public void run() {
+                String key = a.getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getString("tmdb_api_key", "").trim();
+                if (!key.isEmpty()) loadTmdb(key);
+                catalogHandler.postDelayed(this, 30L * 60L * 1000L);
+            }
+        };
         private final ArrayList<Bitmap> appIconBitmaps = new ArrayList<>();
         private float sx, sy;
         // Focus index 0-4: Seguir viendo; 5-13: apps.
@@ -113,6 +137,8 @@ public class MainActivity extends Activity {
             refreshInstalledApps();
             String tmdbKey = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("tmdb_api_key", "").trim();
             if (!tmdbKey.isEmpty()) loadTmdb(tmdbKey);
+            catalogHandler.postDelayed(catalogRotation, 18000L);
+            catalogHandler.postDelayed(catalogRefresh, 30L * 60L * 1000L);
         }
 
         void setProfileImage(Uri uri) {
@@ -210,6 +236,12 @@ public class MainActivity extends Activity {
             reset();
         }
 
+        @Override protected void onDetachedFromWindow() {
+            catalogHandler.removeCallbacks(catalogRotation);
+            catalogHandler.removeCallbacks(catalogRefresh);
+            super.onDetachedFromWindow();
+        }
+
         @Override protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             c = canvas;
@@ -288,15 +320,7 @@ public class MainActivity extends Activity {
             glass(1751, 46, 1801, 96, 25, focused == 22);
             drawProfileAvatar();
 
-            // Transparent glass hero surface over the full-screen cinematic image.
-            glass(73, 138, 1847, 480, 24, false);
-            // Subtle light on the hero's right side to give the empty artwork panel depth.
-            reset();
-            p.setShader(new LinearGradient(950, 138, 1847, 480,
-                new int[]{0x00000000, 0x143D5D80, 0x253D5575},
-                null, Shader.TileMode.CLAMP));
-            c.drawRoundRect(73, 138, 1847, 480, 24, 24, p);
-            reset();
+            // The cinematic backdrop stays unobstructed; no separate translucent hero rectangle.
             for (int i = 0; i < 5; i++) {
                 fill(i == 0 ? 0xFFF3F7FC : 0x668D9EB2);
                 c.drawCircle(126 + i * 25, 447, i == 0 ? 5 : 4, p);
@@ -342,7 +366,17 @@ public class MainActivity extends Activity {
             for (int i = appScroll; i < installedApps.size() && i < appScroll + visibleCount; i++) {
                 float x = 72 + (i - appScroll) * (appCardW + gap);
                 boolean active = focused == 100 + i;
-                rect(x, appY, x + appCardW, appY + appH, 16, 0xFF111A28);
+                // Frosted-glass background behind each app icon.
+                reset();
+                p.setShader(new LinearGradient(x, appY, x, appY + appH,
+                    new int[]{0x55FFFFFF, 0x2AB9D8FF, 0x42101828}, null, Shader.TileMode.CLAMP));
+                c.drawRoundRect(x, appY, x + appCardW, appY + appH, 16, 16, p);
+                reset();
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeWidth(1.2f);
+                p.setColor(0x668DDCFF);
+                c.drawRoundRect(x, appY, x + appCardW, appY + appH, 16, 16, p);
+                reset();
                 try {
                     Bitmap iconBitmap = appIconBitmaps.get(i);
                     if (iconBitmap != null) c.drawBitmap(iconBitmap, null, new RectF(x + appCardW/2 - 27, appY + 12, x + appCardW/2 + 27, appY + 66), p);
