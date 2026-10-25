@@ -44,16 +44,40 @@ public class MainActivity extends Activity {
     }
 
     private void showSettings() {
-        final EditText input = new EditText(this);
-        input.setSingleLine(true);
-        input.setHint("Clave API de TMDB (opcional)");
-        input.setText(getSharedPreferences("pg_launcher_preferences", MODE_PRIVATE).getString("tmdb_api_key", ""));
+        android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        android.widget.LinearLayout panel = new android.widget.LinearLayout(this);
+        panel.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int)(20 * getResources().getDisplayMetrics().density);
+        panel.setPadding(pad, pad / 2, pad, 0);
+
+        final EditText tmdbInput = new EditText(this);
+        tmdbInput.setSingleLine(true);
+        tmdbInput.setHint("TMDB API key (películas y series)");
+        tmdbInput.setText(prefs.getString("tmdb_api_key", ""));
+        panel.addView(tmdbInput, new android.widget.LinearLayout.LayoutParams(-1, -2));
+
+        final EditText youtubeInput = new EditText(this);
+        youtubeInput.setSingleLine(true);
+        youtubeInput.setHint("YouTube Data API key (videos)");
+        youtubeInput.setText(prefs.getString("youtube_api_key", ""));
+        panel.addView(youtubeInput, new android.widget.LinearLayout.LayoutParams(-1, -2));
+
         new AlertDialog.Builder(this).setTitle("Configuración de TV Launcher PG")
-            .setMessage("Guardá la clave de TMDB para conectar el catálogo.")
-            .setView(input)
+            .setMessage("Conectá varias fuentes para darle más variedad al catálogo. Las claves se guardan en este dispositivo.")
+            .setView(panel)
             .setNegativeButton("Cancelar", null)
             .setNeutralButton("Actualizar apps", (d,w) -> { if(home!=null) home.refreshInstalledApps(); })
-            .setPositiveButton("Guardar", (d,w) -> { String key = input.getText().toString().trim(); getSharedPreferences("pg_launcher_preferences", MODE_PRIVATE).edit().putString("tmdb_api_key", key).apply(); if (home != null) home.loadTmdb(key); })
+            .setPositiveButton("Guardar y cargar", (d,w) -> {
+                String tmdbKey = tmdbInput.getText().toString().trim();
+                String youtubeKey = youtubeInput.getText().toString().trim();
+                prefs.edit().putString("tmdb_api_key", tmdbKey).putString("youtube_api_key", youtubeKey).apply();
+                if (home != null) {
+                    if (!tmdbKey.isEmpty()) home.loadTmdb(tmdbKey);
+                    if (!youtubeKey.isEmpty()) home.loadYoutube(youtubeKey);
+                    if (tmdbKey.isEmpty() && youtubeKey.isEmpty())
+                        Toast.makeText(this, "Agregá al menos una clave API para cargar contenido", Toast.LENGTH_LONG).show();
+                }
+            })
             .show();
     }
 
@@ -93,7 +117,7 @@ public class MainActivity extends Activity {
         private int heroRotationIndex = 0;
         private final ArrayList<Bitmap> featuredBackdrops = new ArrayList<>();
         private final ArrayList<String> featuredTitles = new ArrayList<>();
-        private volatile boolean tmdbLoading = false;
+        private volatile boolean tmdbLoading = false;\n        private volatile boolean youtubeLoading = false;
         private final Handler catalogHandler = new Handler(Looper.getMainLooper());
         private final Runnable catalogRotation = new Runnable() {
             @Override public void run() {
@@ -108,9 +132,11 @@ public class MainActivity extends Activity {
         };
         private final Runnable catalogRefresh = new Runnable() {
             @Override public void run() {
-                String key = a.getSharedPreferences(PREFS, MODE_PRIVATE)
-                    .getString("tmdb_api_key", "").trim();
+                android.content.SharedPreferences prefs = a.getSharedPreferences(PREFS, MODE_PRIVATE);
+                String key = prefs.getString("tmdb_api_key", "").trim();
+                String youtubeKey = prefs.getString("youtube_api_key", "").trim();
                 if (!key.isEmpty()) loadTmdb(key);
+                if (!youtubeKey.isEmpty()) loadYoutube(youtubeKey);
                 catalogHandler.postDelayed(this, 30L * 60L * 1000L);
             }
         };
@@ -242,6 +268,10 @@ public class MainActivity extends Activity {
                 p.setStrokeWidth(1f);
                 p.setColor(0xFFB8E2FF);
                 c.drawRoundRect(l + 2, t + 2, r - 2, b - 2, Math.max(2, radius - 2), Math.max(2, radius - 2), p);
+                // A restrained top-edge highlight adds a polished glass reflection at negligible cost.
+                p.setStrokeWidth(1.5f);
+                p.setColor(0xBFFFFFFF);
+                c.drawLine(l + radius, t + 2, r - radius, t + 2, p);
             } else {
                 p.setStyle(Paint.Style.STROKE);
                 p.setStrokeWidth(1.2f);
@@ -570,6 +600,69 @@ public class MainActivity extends Activity {
             return super.onKeyDown(key, event);
         }
 
+
+        void loadYoutube(String apiKey) {
+            if (apiKey == null || apiKey.trim().isEmpty() || youtubeLoading) return;
+            youtubeLoading = true;
+            new Thread(() -> {
+                try {
+                    String endpoint = "https://www.googleapis.com/youtube/v3/videos?part=snippet&chart=mostPopular&regionCode=AR&maxResults=5&key="
+                        + java.net.URLEncoder.encode(apiKey.trim(), "UTF-8");
+                    JSONObject root = new JSONObject(new String(httpGet(endpoint), "UTF-8"));
+                    JSONArray results = root.optJSONArray("items");
+                    if (results == null || results.length() == 0) throw new Exception("YouTube no devolvió videos");
+                    ArrayList<String> titles = new ArrayList<>();
+                    ArrayList<String> imageUrls = new ArrayList<>();
+                    for (int i = 0; i < results.length() && titles.size() < 5; i++) {
+                        JSONObject item = results.optJSONObject(i);
+                        if (item == null) continue;
+                        JSONObject snippet = item.optJSONObject("snippet");
+                        if (snippet == null) continue;
+                        String title = snippet.optString("title", "Video de YouTube");
+                        JSONObject thumbnails = snippet.optJSONObject("thumbnails");
+                        if (thumbnails == null) continue;
+                        JSONObject image = thumbnails.optJSONObject("high");
+                        if (image == null) image = thumbnails.optJSONObject("medium");
+                        if (image == null) image = thumbnails.optJSONObject("default");
+                        if (image == null) continue;
+                        String url = image.optString("url", "");
+                        if (url.isEmpty()) continue;
+                        titles.add(title);
+                        imageUrls.add(url);
+                    }
+                    ArrayList<Bitmap> images = new ArrayList<>();
+                    for (String imageUrl : imageUrls) {
+                        try { images.add(downloadBitmap(imageUrl)); }
+                        catch (Exception ignored) { images.add(null); }
+                    }
+                    a.runOnUiThread(() -> {
+                        int added = 0;
+                        for (int i = 0; i < images.size(); i++) {
+                            Bitmap image = images.get(i);
+                            if (image == null) continue;
+                            heroRotationBackdrops.add(image);
+                            featuredBackdrops.add(image);
+                            featuredTitles.add(titles.get(i));
+                            added++;
+                        }
+                        if (heroBackdrop == null && !heroRotationBackdrops.isEmpty()) {
+                            heroRotationIndex = 0;
+                            heroBackdrop = heroRotationBackdrops.get(0);
+                            refreshBlurredHero();
+                        }
+                        youtubeLoading = false;
+                        invalidate();
+                        Toast.makeText(a, added > 0 ? "Videos de YouTube agregados al catálogo" : "YouTube no devolvió miniaturas válidas",
+                            Toast.LENGTH_SHORT).show();
+                    });
+                } catch (Exception e) {
+                    a.runOnUiThread(() -> {
+                        youtubeLoading = false;
+                        Toast.makeText(a, "YouTube: revisá la clave, la cuota y la conexión", Toast.LENGTH_LONG).show();
+                    });
+                }
+            }, "PG-YouTube").start();
+        }
 
         void loadTmdb(String apiKey) {
             if (apiKey == null || apiKey.trim().isEmpty() || tmdbLoading) return;
