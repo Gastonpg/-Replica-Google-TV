@@ -443,21 +443,23 @@ public class MainActivity extends Activity {
             for (int i = 0; i < cardX.length; i++) {
                 float x = cardX[i], w = cardW[i];
                 boolean active = focused == 30 + i;
+                // Shift the visible titles with the rotating backdrop so every connected API gets a turn.
+                int featuredIndex = featuredBackdrops.isEmpty() ? -1 : (heroRotationIndex + i) % featuredBackdrops.size();
                 rect(x, 560, x + w, 560 + (active ? 188 : 180), active ? 20 : 18,
                     i == 0 ? 0xB51E293B : 0x7D1E293B);
-                if (i < featuredBackdrops.size() && featuredBackdrops.get(i) != null) {
+                if (featuredIndex >= 0 && featuredBackdrops.get(featuredIndex) != null) {
                     c.save();
                     Path cardClip = new Path();
                     cardClip.addRoundRect(x, 560, x + w, 740, 18, 18, Path.Direction.CW);
                     c.clipPath(cardClip);
                     p.setAlpha(255); p.setFilterBitmap(true);
-                    drawCenterCrop(featuredBackdrops.get(i), new RectF(x, 560, x + w, 740));
+                    drawCenterCrop(featuredBackdrops.get(featuredIndex), new RectF(x, 560, x + w, 740));
                     reset();
                     p.setShader(new LinearGradient(x, 620, x, 740, new int[]{0x00000000, 0xDD05070C}, null, Shader.TileMode.CLAMP));
                     c.drawRect(x, 560, x + w, 740, p);
                     reset();
                     c.restore();
-                    if (i < featuredTitles.size()) label(featuredTitles.get(i), x + 14, 718, 18, 0xFFFFFFFF, true);
+                    if (featuredIndex < featuredTitles.size()) label(featuredTitles.get(featuredIndex), x + 14, 718, 18, 0xFFFFFFFF, true);
                 } else {
                     reset();
                     p.setShader(new LinearGradient(x, 560, x + w, 740, new int[]{0x2AFFFFFF, 0x101A2638, 0x20101828}, null, Shader.TileMode.CLAMP));
