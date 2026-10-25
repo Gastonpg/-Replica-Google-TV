@@ -660,14 +660,14 @@ public class MainActivity extends Activity {
             youtubeLoading = true;
             new Thread(() -> {
                 try {
-                    String endpoint = "https://www.googleapis.com/youtube/v3/videos?part=snippet&chart=mostPopular&regionCode=AR&maxResults=5&key="
+                    String endpoint = "https://www.googleapis.com/youtube/v3/videos?part=snippet&chart=mostPopular&regionCode=AR&maxResults=50&key="
                         + java.net.URLEncoder.encode(apiKey.trim(), "UTF-8");
                     JSONObject root = new JSONObject(new String(httpGet(endpoint), "UTF-8"));
                     JSONArray results = root.optJSONArray("items");
                     if (results == null || results.length() == 0) throw new Exception("YouTube no devolvió videos");
-                    ArrayList<String> titles = new ArrayList<>();
-                    ArrayList<String> imageUrls = new ArrayList<>();
-                    for (int i = 0; i < results.length() && titles.size() < 5; i++) {
+                    ArrayList<String> allTitles = new ArrayList<>();
+                    ArrayList<String> allImageUrls = new ArrayList<>();
+                    for (int i = 0; i < results.length(); i++) {
                         JSONObject item = results.optJSONObject(i);
                         if (item == null) continue;
                         JSONObject snippet = item.optJSONObject("snippet");
@@ -681,8 +681,18 @@ public class MainActivity extends Activity {
                         if (image == null) continue;
                         String url = image.optString("url", "");
                         if (url.isEmpty()) continue;
-                        titles.add(title);
-                        imageUrls.add(url);
+                        allTitles.add(title);
+                        allImageUrls.add(url);
+                    }
+                    ArrayList<String> titles = new ArrayList<>();
+                    ArrayList<String> imageUrls = new ArrayList<>();
+                    ArrayList<Integer> picks = new ArrayList<>();
+                    for (int i = 0; i < allTitles.size(); i++) picks.add(i);
+                    java.util.Collections.shuffle(picks, new java.util.Random());
+                    for (int i = 0; i < picks.size() && titles.size() < 5; i++) {
+                        int pick = picks.get(i);
+                        titles.add(allTitles.get(pick));
+                        imageUrls.add(allImageUrls.get(pick));
                     }
                     ArrayList<Bitmap> images = new ArrayList<>();
                     for (String imageUrl : imageUrls) {
@@ -720,7 +730,8 @@ public class MainActivity extends Activity {
             tmdbLoading = true;
             new Thread(() -> {
                 try {
-                    String endpoint = "https://api.themoviedb.org/3/trending/all/week?api_key=" + java.net.URLEncoder.encode(apiKey.trim(), "UTF-8") + "&language=es-ES";
+                    int randomPage = 1 + new java.util.Random().nextInt(5);
+                    String endpoint = "https://api.themoviedb.org/3/trending/all/day?api_key=" + java.net.URLEncoder.encode(apiKey.trim(), "UTF-8") + "&language=es-ES&page=" + randomPage;
                     JSONObject root = new JSONObject(new String(httpGet(endpoint), "UTF-8"));
                     JSONArray results = root.optJSONArray("results");
                     if (results == null || results.length() == 0) throw new Exception("TMDB no devolvió títulos");
@@ -751,7 +762,6 @@ public class MainActivity extends Activity {
                         tmdbFeaturedTitles.clear(); tmdbFeaturedTitles.addAll(titles);
                         applyActiveFeaturedCatalog();
                         tmdbLoading = false; invalidate();
-                        Toast.makeText(a, "Catálogo TMDB actualizado", Toast.LENGTH_SHORT).show();
                     });
                 } catch (Exception e) {
                     a.runOnUiThread(() -> {
