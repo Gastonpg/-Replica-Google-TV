@@ -682,6 +682,7 @@ public class MainActivity extends Activity {
                     if (results == null || results.length() == 0) throw new Exception("YouTube no devolvió videos");
                     ArrayList<String> allTitles = new ArrayList<>();
                     ArrayList<String> allImageUrls = new ArrayList<>();
+                    ArrayList<String> allVideoIds = new ArrayList<>();
                     for (int i = 0; i < results.length(); i++) {
                         JSONObject item = results.optJSONObject(i);
                         if (item == null) continue;
@@ -696,11 +697,15 @@ public class MainActivity extends Activity {
                         if (image == null) continue;
                         String url = image.optString("url", "");
                         if (url.isEmpty()) continue;
+                        String videoId = item.optString("id", "");
+                        if (videoId.isEmpty()) continue;
                         allTitles.add(title);
                         allImageUrls.add(url);
+                        allVideoIds.add(videoId);
                     }
                     ArrayList<String> titles = new ArrayList<>();
                     ArrayList<String> imageUrls = new ArrayList<>();
+                    ArrayList<String> videoIds = new ArrayList<>();
                     ArrayList<Integer> picks = new ArrayList<>();
                     for (int i = 0; i < allTitles.size(); i++) picks.add(i);
                     java.util.Collections.shuffle(picks, new java.util.Random());
@@ -708,11 +713,19 @@ public class MainActivity extends Activity {
                         int pick = picks.get(i);
                         titles.add(allTitles.get(pick));
                         imageUrls.add(allImageUrls.get(pick));
+                        videoIds.add(allVideoIds.get(pick));
                     }
                     ArrayList<Bitmap> images = new ArrayList<>();
-                    for (String imageUrl : imageUrls) {
-                        try { images.add(downloadBitmap(imageUrl)); }
-                        catch (Exception ignored) { images.add(null); }
+                    for (int i = 0; i < imageUrls.size(); i++) {
+                        Bitmap image = null;
+                        // Prefer YouTube's 1280x720 max-resolution frame when the video provides it.
+                        // Fall back to the official API thumbnail for videos without maxres artwork.
+                        String maxResolutionUrl = "https://i.ytimg.com/vi/" + videoIds.get(i) + "/maxresdefault.jpg";
+                        try { image = downloadBitmap(maxResolutionUrl); } catch (Exception ignored) { }
+                        if (image == null) {
+                            try { image = downloadBitmap(imageUrls.get(i)); } catch (Exception ignored) { }
+                        }
+                        images.add(image);
                     }
                     a.runOnUiThread(() -> {
                         youtubeFeaturedBackdrops.clear();
