@@ -237,7 +237,10 @@ public class MainActivity extends Activity {
         private int selectedCategory = 0;
         private int appScroll = 0;
         private final ArrayList<ResolveInfo> installedApps = new ArrayList<>();
-        private final HashSet<String> excludedPackages = new HashSet<>(Arrays.asList("com.gastonpg.replicagoogletv"));
+        private final HashSet<String> excludedPackages = new HashSet<>(Arrays.asList(
+            "com.gastonpg.replicagoogletv",
+            "com.tvlaunch.pg"
+        ));
         private final String[] nav = {"Para ti", "Películas", "Series", "Apps", "Biblioteca"};
         private String[] apps = new String[0];
         private final String[] continueTitles = {"", "", "", "", ""};
