@@ -26,6 +26,11 @@ public class MainActivity extends Activity {
     private static final String PREFS = "pg_launcher_preferences";
     private static final String PROFILE_URI = "profile_image_uri";
     private TVHome home;
+    private final BroadcastReceiver packageChangeReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (home != null) home.refreshInstalledApps();
+        }
+    };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -34,6 +39,19 @@ public class MainActivity extends Activity {
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         home = new TVHome(this);
         setContentView(home);
+        // Keep the app row synchronized when third-party apps are installed, removed or updated.
+        IntentFilter packageFilter = new IntentFilter();
+        packageFilter.addAction(Intent.ACTION_PACKAGE_ADDED);
+        packageFilter.addAction(Intent.ACTION_PACKAGE_REMOVED);
+        packageFilter.addAction(Intent.ACTION_PACKAGE_CHANGED);
+        packageFilter.addAction(Intent.ACTION_PACKAGE_REPLACED);
+        packageFilter.addDataScheme("package");
+        registerReceiver(packageChangeReceiver, packageFilter);
+    }
+
+    @Override protected void onDestroy() {
+        try { unregisterReceiver(packageChangeReceiver); } catch (Exception ignored) { }
+        super.onDestroy();
     }
 
     private void chooseProfileImage() {
@@ -190,6 +208,7 @@ public class MainActivity extends Activity {
             }
         };
         private final ArrayList<Bitmap> appIconBitmaps = new ArrayList<>();
+        private final ArrayList<Bitmap> appBannerBitmaps = new ArrayList<>();
 
         // Tiny procedural particles: drawn by the launcher itself to avoid video/texture overhead.
         private static final class SnowParticle {
@@ -527,44 +546,54 @@ public class MainActivity extends Activity {
 
             // Installed applications are discovered from Android, not hard-coded.
             label("Tus apps", 80, 823, 24, 0xFFE2E8F0, true);
-            float appCardW = 196, gap = 22, appY = 852, appH = 112;
+            float appCardW = 196, gap = 22, appY = 852, appH = 110.25f;
             int visibleCount = 8;
             int maxScroll = Math.max(0, installedApps.size() - visibleCount);
             appScroll = Math.max(0, Math.min(appScroll, maxScroll));
             for (int i = appScroll; i < installedApps.size() && i < appScroll + visibleCount; i++) {
                 float x = 72 + (i - appScroll) * (appCardW + gap);
                 boolean active = focused == 100 + i;
-                // Frosted-glass background: blur the cinematic image behind the app card.
+                Bitmap bannerBitmap = null;
+                try { bannerBitmap = appBannerBitmaps.get(i); } catch (Exception ignored) { }
                 c.save();
                 Path appClip = new Path();
                 appClip.addRoundRect(x, appY, x + appCardW, appY + appH, 16, 16, Path.Direction.CW);
                 c.clipPath(appClip);
-                if (blurredHeroBackdrop != null && !blurredHeroBackdrop.isRecycled()) {
-                    p.setAlpha(255);
-                    p.setFilterBitmap(true);
-                    c.drawBitmap(blurredHeroBackdrop, null, new RectF(0, 0, 1920, 1080), p);
+                if (bannerBitmap != null && !bannerBitmap.isRecycled()) {
+                    // Prefer the app's own Android TV banner (android:banner), preserving its artwork.
+                    drawCenterCrop(bannerBitmap, new RectF(x, appY, x + appCardW, appY + appH));
+                    reset();
+                    p.setShader(new LinearGradient(x, appY + appH * 0.68f, x, appY + appH,
+                        new int[]{0x00000000, 0x22000000}, null, Shader.TileMode.CLAMP));
+                    c.drawRect(x, appY, x + appCardW, appY + appH, p);
+                    reset();
                 } else {
-                    rect(x, appY, x + appCardW, appY + appH, 16, 0xAA182333);
+                    // Fallback for mobile/third-party apps without a TV banner: build a wide tile.
+                    reset();
+                    p.setShader(new LinearGradient(x, appY, x + appCardW, appY + appH,
+                        new int[]{0xB52B3B52, 0xD5111B2A, 0xE0080D16}, null, Shader.TileMode.CLAMP));
+                    c.drawRect(x, appY, x + appCardW, appY + appH, p);
+                    reset();
+                    Bitmap iconBitmap = null;
+                    try { iconBitmap = appIconBitmaps.get(i); } catch (Exception ignored) { }
+                    if (iconBitmap != null && !iconBitmap.isRecycled()) {
+                        c.drawBitmap(iconBitmap, null, new RectF(x + 15, appY + 27, x + 71, appY + 83), p);
+                    }
+                    String appName = apps[i];
+                    p.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+                    p.setTextSize(15);
+                    while (p.measureText(appName) > appCardW - 96 && appName.length() > 4)
+                        appName = appName.substring(0, appName.length() - 1);
+                    p.setColor(0xFFF4F7FC);
+                    c.drawText(appName, x + 82, appY + 62, p);
+                    reset();
                 }
-                reset();
-                p.setShader(new LinearGradient(x, appY, x, appY + appH,
-                    new int[]{0x66FFFFFF, 0x359CCBEA, 0x7A101828}, null, Shader.TileMode.CLAMP));
-                c.drawRoundRect(x, appY, x + appCardW, appY + appH, 16, 16, p);
-                reset();
                 c.restore();
                 p.setStyle(Paint.Style.STROKE);
                 p.setStrokeWidth(1.2f);
                 p.setColor(0x668DDCFF);
                 c.drawRoundRect(x, appY, x + appCardW, appY + appH, 16, 16, p);
                 reset();
-                try {
-                    Bitmap iconBitmap = appIconBitmaps.get(i);
-                    if (iconBitmap != null) c.drawBitmap(iconBitmap, null, new RectF(x + appCardW/2 - 27, appY + 12, x + appCardW/2 + 27, appY + 66), p);
-                } catch (Exception ignored) { }
-                String appName = apps[i];
-                p.setTextSize(16);
-                while (p.measureText(appName) > appCardW - 18 && appName.length() > 4) appName = appName.substring(0, appName.length()-1);
-                centerLabel(appName, x + appCardW/2, appY + 94, 16, 0xFFF4F7FC, true);
                 if (active) glass(x - 2, appY - 2, x + appCardW + 2, appY + appH + 2, 17, true);
             }
             if (installedApps.isEmpty()) {
@@ -880,20 +909,67 @@ public class MainActivity extends Activity {
         private void refreshInstalledApps() {
             installedApps.clear();
             appIconBitmaps.clear();
-            Intent query = new Intent(Intent.ACTION_MAIN, null);
-            query.addCategory(Intent.CATEGORY_LAUNCHER);
+            appBannerBitmaps.clear();
             PackageManager pm = a.getPackageManager();
-            List<ResolveInfo> found = pm.queryIntentActivities(query, 0);
-            Collections.sort(found, (left, right) -> String.valueOf(left.loadLabel(pm)).compareToIgnoreCase(String.valueOf(right.loadLabel(pm))));
-            for (ResolveInfo info : found) {
-                if (info.activityInfo == null || excludedPackages.contains(info.activityInfo.packageName)) continue;
-                installedApps.add(info);
+
+            // Start with ordinary Android apps, then prefer the TV activity when a package
+            // also declares CATEGORY_LEANBACK_LAUNCHER.
+            LinkedHashMap<String, ResolveInfo> byPackage = new LinkedHashMap<>();
+            Intent mobileQuery = new Intent(Intent.ACTION_MAIN, null);
+            mobileQuery.addCategory(Intent.CATEGORY_LAUNCHER);
+            List<ResolveInfo> mobileApps = pm.queryIntentActivities(mobileQuery, 0);
+            for (ResolveInfo info : mobileApps) {
+                if (info == null || info.activityInfo == null) continue;
+                String packageName = info.activityInfo.packageName;
+                if (excludedPackages.contains(packageName) || packageName.equals(a.getPackageName())) continue;
+                byPackage.put(packageName, info);
             }
+
+            Intent tvQuery = new Intent(Intent.ACTION_MAIN, null);
+            tvQuery.addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
+            List<ResolveInfo> tvApps = pm.queryIntentActivities(tvQuery, 0);
+            for (ResolveInfo info : tvApps) {
+                if (info == null || info.activityInfo == null) continue;
+                String packageName = info.activityInfo.packageName;
+                if (excludedPackages.contains(packageName) || packageName.equals(a.getPackageName())) continue;
+                // A TV-specific activity takes precedence over the phone/tablet launcher activity.
+                byPackage.put(packageName, info);
+            }
+
+            ArrayList<ResolveInfo> found = new ArrayList<>(byPackage.values());
+            Collections.sort(found, (left, right) ->
+                String.valueOf(left.loadLabel(pm)).compareToIgnoreCase(String.valueOf(right.loadLabel(pm))));
+            installedApps.addAll(found);
+
             apps = new String[installedApps.size()];
-            for (int i=0;i<installedApps.size();i++) {
-                apps[i] = String.valueOf(installedApps.get(i).loadLabel(pm));
-                try { appIconBitmaps.add(drawableToBitmap(installedApps.get(i).loadIcon(pm), 54, 54)); }
-                catch (Exception ignored) { appIconBitmaps.add(null); }
+            for (int i = 0; i < installedApps.size(); i++) {
+                ResolveInfo info = installedApps.get(i);
+                apps[i] = String.valueOf(info.loadLabel(pm));
+                try {
+                    appIconBitmaps.add(drawableToBitmap(info.loadIcon(pm), 96, 96));
+                } catch (Exception ignored) {
+                    appIconBitmaps.add(null);
+                }
+
+                // Android exposes an app/activity banner through PackageManager when the APK
+                // declares android:banner. No external Leanback "bridge" APK is required.
+                Drawable banner = null;
+                try { banner = info.loadBanner(pm); } catch (Exception ignored) { }
+                if (banner == null) {
+                    try {
+                        banner = pm.getActivityBanner(new ComponentName(
+                            info.activityInfo.packageName, info.activityInfo.name));
+                    } catch (Exception ignored) { }
+                }
+                if (banner == null) {
+                    try { banner = pm.getApplicationBanner(info.activityInfo.applicationInfo); }
+                    catch (Exception ignored) { }
+                }
+                try {
+                    appBannerBitmaps.add(banner == null ? null : drawableToBitmap(banner, 320, 180));
+                } catch (Exception ignored) {
+                    appBannerBitmaps.add(null);
+                }
             }
             invalidate();
         }
