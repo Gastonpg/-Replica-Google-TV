@@ -970,15 +970,12 @@ public class MainActivity extends Activity {
             if (appsWithoutBanner.contains(key)) return null;
 
             PackageManager pm = a.getPackageManager();
-            // Android exposes the app/activity banner through PackageManager when the APK
-            // declares android:banner. Leanback metadata is read without installing a bridge APK.
+            // Android exposes the activity/application android:banner resources through PackageManager.
+            // Leanback metadata is read without installing a separate bridge APK.
             Drawable banner = null;
-            try { banner = info.loadBanner(pm); } catch (Exception ignored) { }
-            if (banner == null) {
-                try { banner = pm.getActivityBanner(new ComponentName(
-                    info.activityInfo.packageName, info.activityInfo.name)); }
-                catch (Exception ignored) { }
-            }
+            try { banner = pm.getActivityBanner(new ComponentName(
+                info.activityInfo.packageName, info.activityInfo.name)); }
+            catch (Exception ignored) { }
             if (banner == null) {
                 try { banner = pm.getApplicationBanner(info.activityInfo.applicationInfo); }
                 catch (Exception ignored) { }
