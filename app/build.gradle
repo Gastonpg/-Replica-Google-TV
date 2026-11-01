@@ -12,4 +12,15 @@ android {
         versionCode 2
         versionName '0.2.0'
     }
+
+    // Separate package for testing: it cannot overwrite the stable PG launcher.
+    buildTypes {
+        leanbackTest {
+            initWith debug
+            applicationIdSuffix '.leanbacktest'
+            versionNameSuffix '-leanbacktest'
+            debuggable true
+            matchingFallbacks = ['debug']
+        }
+    }
 }
