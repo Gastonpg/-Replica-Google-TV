@@ -20,6 +20,7 @@ import java.util.*;
 import android.app.AlertDialog;
 import android.widget.EditText;
 import android.widget.Toast;
+import android.util.LruCache;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_PROFILE_IMAGE = 731;
@@ -208,7 +209,13 @@ public class MainActivity extends Activity {
             }
         };
         private final ArrayList<Bitmap> appIconBitmaps = new ArrayList<>();
-        private final ArrayList<Bitmap> appBannerBitmaps = new ArrayList<>();
+        // Keep only a small number of decoded banners in memory on low-RAM TV boxes.
+        private final LruCache<String, Bitmap> appBannerCache = new LruCache<String, Bitmap>(4 * 1024) {
+            @Override protected int sizeOf(String key, Bitmap value) {
+                return Math.max(1, value.getByteCount() / 1024);
+            }
+        };
+        private final HashSet<String> appsWithoutBanner = new HashSet<>();
 
         // Tiny procedural particles: drawn by the launcher itself to avoid video/texture overhead.
         private static final class SnowParticle {
@@ -553,8 +560,7 @@ public class MainActivity extends Activity {
             for (int i = appScroll; i < installedApps.size() && i < appScroll + visibleCount; i++) {
                 float x = 72 + (i - appScroll) * (appCardW + gap);
                 boolean active = focused == 100 + i;
-                Bitmap bannerBitmap = null;
-                try { bannerBitmap = appBannerBitmaps.get(i); } catch (Exception ignored) { }
+                Bitmap bannerBitmap = loadAppBanner(installedApps.get(i));
                 c.save();
                 Path appClip = new Path();
                 appClip.addRoundRect(x, appY, x + appCardW, appY + appH, 16, 16, Path.Direction.CW);
@@ -909,7 +915,8 @@ public class MainActivity extends Activity {
         private void refreshInstalledApps() {
             installedApps.clear();
             appIconBitmaps.clear();
-            appBannerBitmaps.clear();
+            appBannerCache.evictAll();
+            appsWithoutBanner.clear();
             PackageManager pm = a.getPackageManager();
 
             // Start with ordinary Android apps, then prefer the TV activity when a package
@@ -946,32 +953,48 @@ public class MainActivity extends Activity {
                 ResolveInfo info = installedApps.get(i);
                 apps[i] = String.valueOf(info.loadLabel(pm));
                 try {
-                    appIconBitmaps.add(drawableToBitmap(info.loadIcon(pm), 96, 96));
+                    appIconBitmaps.add(drawableToBitmap(info.loadIcon(pm), 54, 54));
                 } catch (Exception ignored) {
                     appIconBitmaps.add(null);
                 }
 
-                // Android exposes an app/activity banner through PackageManager when the APK
-                // declares android:banner. No external Leanback "bridge" APK is required.
-                Drawable banner = null;
-                try { banner = info.loadBanner(pm); } catch (Exception ignored) { }
-                if (banner == null) {
-                    try {
-                        banner = pm.getActivityBanner(new ComponentName(
-                            info.activityInfo.packageName, info.activityInfo.name));
-                    } catch (Exception ignored) { }
-                }
-                if (banner == null) {
-                    try { banner = pm.getApplicationBanner(info.activityInfo.applicationInfo); }
-                    catch (Exception ignored) { }
-                }
-                try {
-                    appBannerBitmaps.add(banner == null ? null : drawableToBitmap(banner, 320, 180));
-                } catch (Exception ignored) {
-                    appBannerBitmaps.add(null);
-                }
             }
             invalidate();
+        }
+
+        private Bitmap loadAppBanner(ResolveInfo info) {
+            if (info == null || info.activityInfo == null) return null;
+            String key = info.activityInfo.packageName + "/" + info.activityInfo.name;
+            Bitmap cached = appBannerCache.get(key);
+            if (cached != null) return cached;
+            if (appsWithoutBanner.contains(key)) return null;
+
+            PackageManager pm = a.getPackageManager();
+            // Android exposes the app/activity banner through PackageManager when the APK
+            // declares android:banner. Leanback metadata is read without installing a bridge APK.
+            Drawable banner = null;
+            try { banner = info.loadBanner(pm); } catch (Exception ignored) { }
+            if (banner == null) {
+                try { banner = pm.getActivityBanner(new ComponentName(
+                    info.activityInfo.packageName, info.activityInfo.name)); }
+                catch (Exception ignored) { }
+            }
+            if (banner == null) {
+                try { banner = pm.getApplicationBanner(info.activityInfo.applicationInfo); }
+                catch (Exception ignored) { }
+            }
+            if (banner == null) {
+                appsWithoutBanner.add(key);
+                return null;
+            }
+            try {
+                Bitmap decoded = drawableToBitmap(banner, 320, 180);
+                appBannerCache.put(key, decoded);
+                return decoded;
+            } catch (Exception ignored) {
+                appsWithoutBanner.add(key);
+                return null;
+            }
         }
 
         private Bitmap drawableToBitmap(Drawable drawable, int width, int height) {
