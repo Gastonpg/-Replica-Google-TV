@@ -17,8 +17,8 @@ android {
     buildTypes {
         leanbackTest {
             initWith debug
-            applicationIdSuffix '.leanbacktest'
-            versionNameSuffix '-leanbacktest'
+            applicationIdSuffix '.leanbackmultitask'
+            versionNameSuffix '-leanback-multitask'
             debuggable true
             matchingFallbacks = ['debug']
         }
