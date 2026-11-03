@@ -215,14 +215,17 @@ public final class RecentAppsDialog {
             while ((line = reader.readLine()) != null) dump.append(line).append('\n');
             process.waitFor();
 
+            // This ROM stores the app identifier in the TaskRecord header (A= or I=).
+            // Most entries do not contain a following realActivity line.
             Pattern recent = Pattern.compile(
-                "(?m)^\\s*\\* Recent #\\d+: TaskRecord\\{[^\\n]*\\}\\s*\\n\\s*realActivity=([^\\s]+)"
+                "(?m)^\\s*\\* Recent #\\d+: TaskRecord\\{[^\\n]*?\\s(?:A|I)=([^\\s}]+)"
             );
             Matcher matcher = recent.matcher(dump.toString());
             while (matcher.find() && out.size() < 40) {
-                ComponentName component = ComponentName.unflattenFromString(matcher.group(1));
-                if (component == null) continue;
-                String pkg = component.getPackageName();
+                String taskName = matcher.group(1);
+                ComponentName component = taskName.contains("/")
+                    ? ComponentName.unflattenFromString(taskName) : null;
+                String pkg = component != null ? component.getPackageName() : taskName;
                 if (pkg.equals(activity.getPackageName()) || pkg.equals("com.android.systemui") ||
                     pkg.equals("android") || !pkg.matches("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+") ||
                     !seen.add(pkg)) continue;
