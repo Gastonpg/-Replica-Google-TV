@@ -39,6 +39,7 @@ public final class RecentAppsDialog {
 
     private static final class Entry {
         String pkg;
+        int taskId = -1;
         String label;
         Intent intent;
         Drawable icon;
@@ -143,14 +144,7 @@ public final class RecentAppsDialog {
             });
 
             card.setOnClickListener(v -> {
-                try {
-                    Intent launch = new Intent(entry.intent);
-                    launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-                    activity.startActivity(launch);
-                    dialog.dismiss();
-                } catch (Exception ex) {
-                    Toast.makeText(activity, "No se pudo volver a esa aplicación.", Toast.LENGTH_SHORT).show();
-                }
+                moveTaskToFront(activity, entry, dialog, main);
             });
 
             final float[] touchStartY = new float[]{0f};
@@ -218,11 +212,13 @@ public final class RecentAppsDialog {
             // This ROM stores the app identifier in the TaskRecord header (A= or I=).
             // Most entries do not contain a following realActivity line.
             Pattern recent = Pattern.compile(
-                "(?m)^\\s*\\* Recent #\\d+: TaskRecord\\{[^\\n]*?\\s(?:A|I)=([^\\s}]+)"
+                "(?m)^\\s*\\* Recent #\\d+: TaskRecord\\{[^\\n]*?#(\\d+)\\s+(?:A|I)=([^\\s}]+)"
             );
             Matcher matcher = recent.matcher(dump.toString());
             while (matcher.find() && out.size() < 40) {
-                String taskName = matcher.group(1);
+                int taskId;
+                try { taskId = Integer.parseInt(matcher.group(1)); } catch (Exception ignored) { continue; }
+                String taskName = matcher.group(2);
                 ComponentName component = taskName.contains("/")
                     ? ComponentName.unflattenFromString(taskName) : null;
                 String pkg = component != null ? component.getPackageName() : taskName;
@@ -238,6 +234,7 @@ public final class RecentAppsDialog {
                     }
                     Entry entry = new Entry();
                     entry.pkg = pkg;
+                    entry.taskId = taskId;
                     entry.intent = launch;
                     CharSequence label = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0));
                     entry.label = label == null ? pkg : label.toString();
@@ -251,6 +248,36 @@ public final class RecentAppsDialog {
             if (process != null) try { process.destroy(); } catch (Exception ignored) { }
         }
         return out;
+    }
+
+    /** Bring the existing Android task forward through the privileged ActivityManager shell. */
+    private static void moveTaskToFront(Activity activity, Entry entry, Dialog dialog, Handler main) {
+        new Thread(() -> {
+            boolean moved = false;
+            Process process = null;
+            try {
+                if (entry.taskId < 0) throw new IllegalStateException("Missing task id");
+                process = new ProcessBuilder("su", "0", "sh", "-c",
+                    "am stack move-task " + entry.taskId + " 1 true")
+                    .redirectErrorStream(true).start();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                StringBuilder output = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) output.append(line).append('\\n');
+                moved = process.waitFor() == 0 &&
+                    !output.toString().toLowerCase(java.util.Locale.ROOT).contains("error");
+            } catch (Exception ignored) {
+                moved = false;
+            } finally {
+                if (process != null) try { process.destroy(); } catch (Exception ignored) { }
+            }
+            final boolean success = moved;
+            main.post(() -> {
+                if (activity.isFinishing()) return;
+                if (success) dialog.dismiss();
+                else Toast.makeText(activity, "Android no pudo recuperar esa tarea.", Toast.LENGTH_SHORT).show();
+            });
+        }, "PG-TaskSwitch").start();
     }
 
     private static void forceStop(Activity activity, Entry entry, Dialog dialog, Handler main) {
