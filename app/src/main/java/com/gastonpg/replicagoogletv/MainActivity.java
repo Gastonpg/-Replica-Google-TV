@@ -462,10 +462,14 @@ public class MainActivity extends Activity {
             c.save();
             c.scale(sx, sy);
 
-            // Deep blue-black background with subtle cinematic lighting.
+            // Theme color controls the launcher-wide cinematic background.
             reset();
+            int themeR = Color.red(themeColor), themeG = Color.green(themeColor), themeB = Color.blue(themeColor);
+            int themeLight = Color.rgb(Math.min(255, themeR * 3 / 4), Math.min(255, themeG * 3 / 4), Math.min(255, themeB * 3 / 4));
+            int themeMid = Color.rgb(themeR / 3, themeG / 3, themeB / 3);
+            int themeDark = Color.rgb(themeR / 8, themeG / 8, themeB / 8);
             p.setShader(new LinearGradient(0, 0, 1920, 1080,
-                new int[]{0xFF141B28, 0xFF080C14, 0xFF05070C},
+                new int[]{themeLight, themeMid, themeDark},
                 null, Shader.TileMode.CLAMP));
             c.drawRect(0, 0, 1920, 1080, p);
             reset();
