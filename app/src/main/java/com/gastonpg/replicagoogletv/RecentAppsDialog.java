@@ -30,6 +30,8 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Android 9-compatible recent-app switcher with upward swipe / DPAD_UP force-stop. */
 public final class RecentAppsDialog {
@@ -199,35 +201,52 @@ public final class RecentAppsDialog {
     private static List<Entry> collect(Activity activity) {
         List<Entry> out = new ArrayList<>();
         Set<String> seen = new HashSet<>();
+        Process process = null;
         try {
-            ActivityManager manager = (ActivityManager) activity.getSystemService(Context.ACTIVITY_SERVICE);
             PackageManager pm = activity.getPackageManager();
-            List<ActivityManager.RecentTaskInfo> tasks =
-                manager.getRecentTasks(40, ActivityManager.RECENT_IGNORE_UNAVAILABLE);
-            for (ActivityManager.RecentTaskInfo task : tasks) {
-                Intent base = task.baseIntent;
-                if (base == null) continue;
-                ComponentName component = base.getComponent();
-                if (component == null && task.baseActivity != null) component = task.baseActivity;
+
+            // This Android 9 TV ROM exposes its real recent-task list through dumpsys,
+            // while ActivityManager.getRecentTasks() returns an empty list to launchers.
+            process = new ProcessBuilder("su", "0", "sh", "-c", "dumpsys activity recents")
+                .redirectErrorStream(true).start();
+            StringBuilder dump = new StringBuilder();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line;
+            while ((line = reader.readLine()) != null) dump.append(line).append('\n');
+            process.waitFor();
+
+            Pattern recent = Pattern.compile(
+                "(?m)^\\s*\\* Recent #\\d+: TaskRecord\\{[^\\n]*\\}\\s*\\n\\s*realActivity=([^\\s]+)"
+            );
+            Matcher matcher = recent.matcher(dump.toString());
+            while (matcher.find() && out.size() < 40) {
+                ComponentName component = ComponentName.unflattenFromString(matcher.group(1));
                 if (component == null) continue;
                 String pkg = component.getPackageName();
                 if (pkg.equals(activity.getPackageName()) || pkg.equals("com.android.systemui") ||
                     pkg.equals("android") || !pkg.matches("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+") ||
                     !seen.add(pkg)) continue;
                 try {
+                    Intent launch = pm.getLaunchIntentForPackage(pkg);
+                    if (launch == null) {
+                        launch = new Intent(Intent.ACTION_MAIN);
+                        launch.addCategory(Intent.CATEGORY_LAUNCHER);
+                        launch.setComponent(component);
+                    }
                     Entry entry = new Entry();
                     entry.pkg = pkg;
-                    entry.intent = pm.getLaunchIntentForPackage(pkg);
-                    if (entry.intent == null) entry.intent = new Intent(base);
+                    entry.intent = launch;
                     CharSequence label = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0));
                     entry.label = label == null ? pkg : label.toString();
                     try { entry.icon = pm.getApplicationIcon(pkg); } catch (Exception ignored) { }
                     out.add(entry);
                 } catch (Exception ignored) { }
             }
-        } catch (SecurityException ignored) {
-            // Some Android builds restrict getRecentTasks for third-party launchers.
-        } catch (Exception ignored) { }
+        } catch (Exception ignored) {
+            // Root access or dumpsys may be unavailable; keep the switcher safely empty.
+        } finally {
+            if (process != null) try { process.destroy(); } catch (Exception ignored) { }
+        }
         return out;
     }
 
