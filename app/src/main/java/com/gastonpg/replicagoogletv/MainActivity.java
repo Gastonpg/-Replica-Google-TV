@@ -690,7 +690,7 @@ public class MainActivity extends Activity {
                 }
                 return true;
             }
-            if (key == KeyEvent.KEYCODE_APP_SWITCH) { RecentAppsDialog.show(a); return true; }
+            if (key == KeyEvent.KEYCODE_MENU || key == KeyEvent.KEYCODE_APP_SWITCH) { RecentAppsDialog.show(a); return true; }
             if (key == KeyEvent.KEYCODE_DPAD_LEFT) {
                 if (focused >= 100) {
                     int idx = focused - 100;
