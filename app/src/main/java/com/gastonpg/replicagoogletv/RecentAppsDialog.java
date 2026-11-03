@@ -263,7 +263,7 @@ public final class RecentAppsDialog {
                 BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
                 StringBuilder output = new StringBuilder();
                 String line;
-                while ((line = reader.readLine()) != null) output.append(line).append('\\n');
+                while ((line = reader.readLine()) != null) output.append(line).append('\n');
                 moved = process.waitFor() == 0 &&
                     !output.toString().toLowerCase(java.util.Locale.ROOT).contains("error");
             } catch (Exception ignored) {
