@@ -514,6 +514,8 @@ public class MainActivity extends Activity {
             centerLabel("⚙", 1710, 77, 23, 0xFFE8F0FA, true);
             glass(1751, 46, 1801, 96, 25, focused == 22);
             drawProfileAvatar();
+            glass(1820, 46, 1870, 96, 25, focused == 23);
+            centerLabel("▢", 1845, 78, 23, 0xFFE8F0FA, true);
 
             // The cinematic backdrop stays unobstructed; no separate translucent hero rectangle.
             for (int i = 0; i < 5; i++) {
@@ -618,6 +620,7 @@ public class MainActivity extends Activity {
                 if (y >= 40 && y <= 110 && x >= 1680 && x <= 1740) { focused = 20; ((MainActivity)a).showSettings(); invalidate(); return true; }
                 if (y >= 40 && y <= 110 && x >= 500 && x <= 680) { focused = 21; ((MainActivity)a).showSearch(); invalidate(); return true; }
                 if (y >= 40 && y <= 110 && x >= 1745 && x <= 1810) { focused = 22; ((MainActivity) a).chooseProfileImage(); invalidate(); return true; }
+                if (y >= 40 && y <= 110 && x >= 1815 && x <= 1880) { focused = 23; RecentAppsDialog.show(a); invalidate(); return true; }
                 if (y >= 35 && y <= 115 && x >= 720 && x <= 1600) {
                     int[] starts = {728,873,1055,1205,1347}; int[] ends = {793,975,1125,1267,1455};
                     for (int i=0;i<5;i++) if (x>=starts[i] && x<=ends[i]) { selectedCategory=i; focused=i; invalidate(); return true; }
@@ -642,6 +645,7 @@ public class MainActivity extends Activity {
         }
 
         @Override public boolean onKeyDown(int key, KeyEvent event) {
+            if (key == KeyEvent.KEYCODE_APP_SWITCH) { RecentAppsDialog.show(a); return true; }
             if (key == KeyEvent.KEYCODE_DPAD_LEFT) {
                 if (focused >= 100) {
                     int idx = focused - 100;
@@ -663,7 +667,7 @@ public class MainActivity extends Activity {
                 } else if (focused >= 30 && focused <= 34) focused = focused == 34 ? 30 : focused + 1;
                 else if (focused == 20) focused = 22;
                 else if (focused == 21) focused = 0;
-                else if (focused == 22) focused = 21;
+                else if (focused == 22) focused = 23;
                 else if (focused == 23) focused = 21;
                 else if (focused >= 0 && focused < 5) focused = focused == 4 ? 20 : focused + 1;
                 else focused = 0;
@@ -693,7 +697,7 @@ public class MainActivity extends Activity {
                 else if (focused == 20) ((MainActivity)a).showSettings();
                 else if (focused == 21) ((MainActivity)a).showSearch();
                 else if (focused == 22) ((MainActivity)a).chooseProfileImage();
-                else if (focused == 23) ((MainActivity)a).showPGMenu();
+                else if (focused == 23) RecentAppsDialog.show(a);
                 else { selectedCategory = focused; if (selectedCategory == 3) refreshInstalledApps(); invalidate(); }
                 return true;
             }
