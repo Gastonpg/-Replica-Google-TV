@@ -251,6 +251,7 @@ public class MainActivity extends Activity {
         private float sx, sy;
         // Focus index 0-4: Seguir viendo; 5-13: apps.
         private int focused = 0;
+        private long lastHomePressTime = 0L;
         private int selectedCategory = 0;
         private int appScroll = 0;
         private final ArrayList<ResolveInfo> installedApps = new ArrayList<>();
@@ -680,8 +681,13 @@ public class MainActivity extends Activity {
 
         @Override public boolean onKeyDown(int key, KeyEvent event) {
             if (key == KeyEvent.KEYCODE_HOME) {
-                if (event.getRepeatCount() > 0) { RecentAppsDialog.show(a); return true; }
-                event.startTracking();
+                long now = event.getEventTime();
+                if (lastHomePressTime > 0L && now - lastHomePressTime <= 500L) {
+                    lastHomePressTime = 0L;
+                    RecentAppsDialog.show(a);
+                } else {
+                    lastHomePressTime = now;
+                }
                 return true;
             }
             if (key == KeyEvent.KEYCODE_APP_SWITCH) { RecentAppsDialog.show(a); return true; }
@@ -750,7 +756,6 @@ public class MainActivity extends Activity {
         }
 
         @Override public boolean onKeyLongPress(int key, KeyEvent event) {
-            if (key == KeyEvent.KEYCODE_HOME) { RecentAppsDialog.show(a); return true; }
             return super.onKeyLongPress(key, event);
         }
 
