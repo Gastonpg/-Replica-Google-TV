@@ -115,8 +115,8 @@ public class MainActivity extends Activity {
     }
 
     private void showLauncherColors() {
-        final String[] names = {"Azul noche (original)", "Grafito", "Violeta", "Verde petróleo", "Borgoña", "Negro"};
-        final int[] colors = {0xFF263B59, 0xFF343B46, 0xFF49345F, 0xFF174B4B, 0xFF542D3D, 0xFF15171B};
+        final String[] names = {"Azul noche (original)", "Grafito", "Violeta", "Verde petróleo", "Borgoña", "Negro AMOLED"};
+        final int[] colors = {0xFF263B59, 0xFF343B46, 0xFF49345F, 0xFF174B4B, 0xFF542D3D, 0xFF000000};
         android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         int selected = prefs.getInt("launcher_theme_color", colors[0]);
         int checked = 0;
@@ -607,9 +607,13 @@ public class MainActivity extends Activity {
                     // Fallback for mobile/third-party apps without a TV banner: build a wide tile.
                     reset();
                     int tr = Color.red(themeColor), tg = Color.green(themeColor), tb = Color.blue(themeColor);
+                    int cardTop = themeColor == Color.BLACK ? 0xFF1A1A1A
+                        : Color.argb(181, Math.min(255,tr+28), Math.min(255,tg+28), Math.min(255,tb+32));
+                    int cardMiddle = themeColor == Color.BLACK ? 0xFF121212
+                        : Color.argb(213, tr/2, tg/2, tb/2);
+                    int cardBottom = themeColor == Color.BLACK ? 0xFF080808 : 0xE0080D16;
                     p.setShader(new LinearGradient(x, appY, x + appCardW, appY + appH,
-                        new int[]{Color.argb(181, Math.min(255,tr+28), Math.min(255,tg+28), Math.min(255,tb+32)),
-                                  Color.argb(213, tr/2, tg/2, tb/2), 0xE0080D16}, null, Shader.TileMode.CLAMP));
+                        new int[]{cardTop, cardMiddle, cardBottom}, null, Shader.TileMode.CLAMP));
                     c.drawRect(x, appY, x + appCardW, appY + appH, p);
                     reset();
                     Bitmap iconBitmap = null;
