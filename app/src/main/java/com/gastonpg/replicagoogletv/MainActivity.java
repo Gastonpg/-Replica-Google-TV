@@ -62,8 +62,9 @@ public class MainActivity extends Activity {
         startActivityForResult(intent, REQUEST_PROFILE_IMAGE);
     }
 
-    private void showPGMenu() {
-        // El logo PG abre directamente los ajustes reales del TV Box.
+    private void showPGMenu() { showSettings(); }
+
+    private void openTvBoxSettings() {
         try {
             startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));
         } catch (Exception first) {
@@ -98,7 +99,7 @@ public class MainActivity extends Activity {
             .setMessage("Conectá varias fuentes para darle más variedad al catálogo. Las claves se guardan en este dispositivo.")
             .setView(panel)
             .setNegativeButton("Cancelar", null)
-            .setNeutralButton("Actualizar apps", (d,w) -> { if(home!=null) home.refreshInstalledApps(); })
+            .setNeutralButton("Color del launcher", (d,w) -> showLauncherColors())
             .setPositiveButton("Guardar y cargar", (d,w) -> {
                 String tmdbKey = tmdbInput.getText().toString().trim();
                 String youtubeKey = youtubeInput.getText().toString().trim();
@@ -111,6 +112,21 @@ public class MainActivity extends Activity {
                 }
             })
             .show();
+    }
+
+    private void showLauncherColors() {
+        final String[] names = {"Azul noche (original)", "Grafito", "Violeta", "Verde petróleo", "Borgoña", "Negro"};
+        final int[] colors = {0xFF263B59, 0xFF343B46, 0xFF49345F, 0xFF174B4B, 0xFF542D3D, 0xFF15171B};
+        android.content.SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        int selected = prefs.getInt("launcher_theme_color", colors[0]);
+        int checked = 0;
+        for (int i = 0; i < colors.length; i++) if (colors[i] == selected) checked = i;
+        new AlertDialog.Builder(this).setTitle("Color general del launcher")
+            .setSingleChoiceItems(names, checked, (dialog, which) -> {
+                prefs.edit().putInt("launcher_theme_color", colors[which]).apply();
+                if (home != null) home.setThemeColor(colors[which]);
+                dialog.dismiss();
+            }).setNegativeButton("Cancelar", null).show();
     }
 
     private void showSearch() {
@@ -139,6 +155,7 @@ public class MainActivity extends Activity {
 
     static class TVHome extends View {
         private final Activity a;
+        private int themeColor;
         private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         private Canvas c;
         private Bitmap profileBitmap;
@@ -248,6 +265,7 @@ public class MainActivity extends Activity {
         TVHome(Activity activity) {
             super(activity);
             a = activity;
+            themeColor = a.getSharedPreferences(PREFS, MODE_PRIVATE).getInt("launcher_theme_color", 0xFF263B59);
             setFocusable(true);
             setFocusableInTouchMode(true);
             initSnowParticles();
@@ -267,6 +285,8 @@ public class MainActivity extends Activity {
             catalogHandler.removeCallbacks(particleAnimation);
             catalogHandler.postDelayed(particleAnimation, 33L);
         }
+
+        void setThemeColor(int color) { themeColor = color; invalidate(); }
 
         void requestProfileImage() { ((MainActivity)a).chooseProfileImage(); }
 
@@ -449,8 +469,11 @@ public class MainActivity extends Activity {
                 null, Shader.TileMode.CLAMP));
             c.drawRect(0, 0, 1920, 1080, p);
             reset();
+            int br = Color.red(themeColor), bg = Color.green(themeColor), bb = Color.blue(themeColor);
+            int glow = Color.argb(92, Math.min(255, br + 38), Math.min(255, bg + 42), Math.min(255, bb + 48));
+            int shade = Color.argb(38, br, bg, bb);
             p.setShader(new RadialGradient(990, 310, 1000,
-                new int[]{0x554A6C91, 0x1D344761, 0x00000000},
+                new int[]{glow, shade, 0x00000000},
                 null, Shader.TileMode.CLAMP));
             c.drawRect(0, 0, 1920, 1080, p);
             reset();
@@ -514,8 +537,6 @@ public class MainActivity extends Activity {
             centerLabel("⚙", 1710, 77, 23, 0xFFE8F0FA, true);
             glass(1751, 46, 1801, 96, 25, focused == 22);
             drawProfileAvatar();
-            glass(1820, 46, 1870, 96, 25, focused == 23);
-            centerLabel("▢", 1845, 78, 23, 0xFFE8F0FA, true);
 
             // The cinematic backdrop stays unobstructed; no separate translucent hero rectangle.
             for (int i = 0; i < 5; i++) {
@@ -581,8 +602,10 @@ public class MainActivity extends Activity {
                 } else {
                     // Fallback for mobile/third-party apps without a TV banner: build a wide tile.
                     reset();
+                    int tr = Color.red(themeColor), tg = Color.green(themeColor), tb = Color.blue(themeColor);
                     p.setShader(new LinearGradient(x, appY, x + appCardW, appY + appH,
-                        new int[]{0xB52B3B52, 0xD5111B2A, 0xE0080D16}, null, Shader.TileMode.CLAMP));
+                        new int[]{Color.argb(181, Math.min(255,tr+28), Math.min(255,tg+28), Math.min(255,tb+32)),
+                                  Color.argb(213, tr/2, tg/2, tb/2), 0xE0080D16}, null, Shader.TileMode.CLAMP));
                     c.drawRect(x, appY, x + appCardW, appY + appH, p);
                     reset();
                     Bitmap iconBitmap = null;
@@ -617,10 +640,9 @@ public class MainActivity extends Activity {
             if (event.getAction() == MotionEvent.ACTION_UP) {
                 float x = event.getX() / sx, y = event.getY() / sy;
                 if (y >= 30 && y <= 115 && x >= 55 && x <= 450) { ((MainActivity)a).showPGMenu(); return true; }
-                if (y >= 40 && y <= 110 && x >= 1680 && x <= 1740) { focused = 20; ((MainActivity)a).showSettings(); invalidate(); return true; }
+                if (y >= 40 && y <= 110 && x >= 1680 && x <= 1740) { focused = 20; ((MainActivity)a).openTvBoxSettings(); invalidate(); return true; }
                 if (y >= 40 && y <= 110 && x >= 500 && x <= 680) { focused = 21; ((MainActivity)a).showSearch(); invalidate(); return true; }
                 if (y >= 40 && y <= 110 && x >= 1745 && x <= 1810) { focused = 22; ((MainActivity) a).chooseProfileImage(); invalidate(); return true; }
-                if (y >= 40 && y <= 110 && x >= 1815 && x <= 1880) { focused = 23; RecentAppsDialog.show(a); invalidate(); return true; }
                 if (y >= 35 && y <= 115 && x >= 720 && x <= 1600) {
                     int[] starts = {728,873,1055,1205,1347}; int[] ends = {793,975,1125,1267,1455};
                     for (int i=0;i<5;i++) if (x>=starts[i] && x<=ends[i]) { selectedCategory=i; focused=i; invalidate(); return true; }
@@ -645,6 +667,11 @@ public class MainActivity extends Activity {
         }
 
         @Override public boolean onKeyDown(int key, KeyEvent event) {
+            if (key == KeyEvent.KEYCODE_HOME) {
+                if (event.getRepeatCount() > 0) { RecentAppsDialog.show(a); return true; }
+                event.startTracking();
+                return true;
+            }
             if (key == KeyEvent.KEYCODE_APP_SWITCH) { RecentAppsDialog.show(a); return true; }
             if (key == KeyEvent.KEYCODE_DPAD_LEFT) {
                 if (focused >= 100) {
@@ -653,8 +680,7 @@ public class MainActivity extends Activity {
                     else focused = 3;
                 } else if (focused >= 30 && focused <= 34) focused = focused == 30 ? 34 : focused - 1;
                 else if (focused == 20) focused = 4;
-                else if (focused == 21) focused = 23;
-                else if (focused == 23) focused = 22;
+                else if (focused == 21) focused = 22;
                 else if (focused == 22) focused = 20;
                 else if (focused >= 0 && focused < 5) focused = focused == 0 ? 21 : focused - 1;
                 else focused = 0;
@@ -667,8 +693,7 @@ public class MainActivity extends Activity {
                 } else if (focused >= 30 && focused <= 34) focused = focused == 34 ? 30 : focused + 1;
                 else if (focused == 20) focused = 22;
                 else if (focused == 21) focused = 0;
-                else if (focused == 22) focused = 23;
-                else if (focused == 23) focused = 21;
+                else if (focused == 22) focused = 21;
                 else if (focused >= 0 && focused < 5) focused = focused == 4 ? 20 : focused + 1;
                 else focused = 0;
                 invalidate(); return true;
@@ -677,7 +702,7 @@ public class MainActivity extends Activity {
                 if (focused >= 30 && focused <= 34) focused = installedApps.isEmpty() ? 20 : 100 + Math.min(appScroll, installedApps.size()-1);
                 else if (focused >= 100) return true;
                 else if (focused >= 0 && focused < 5) focused = 30 + focused;
-                else if (focused == 20 || focused == 21 || focused == 22 || focused == 23) focused = 0;
+                else if (focused == 20 || focused == 21 || focused == 22) focused = 0;
                 invalidate(); return true;
             }
             if (key == KeyEvent.KEYCODE_DPAD_UP) {
@@ -694,16 +719,24 @@ public class MainActivity extends Activity {
                     int index = focused - 30;
                     if (index < featuredTitles.size()) Toast.makeText(a, featuredTitles.get(index), Toast.LENGTH_SHORT).show();
                 }
-                else if (focused == 20) ((MainActivity)a).showSettings();
+                else if (focused == 20) ((MainActivity)a).openTvBoxSettings();
                 else if (focused == 21) ((MainActivity)a).showSearch();
                 else if (focused == 22) ((MainActivity)a).chooseProfileImage();
-                else if (focused == 23) RecentAppsDialog.show(a);
                 else { selectedCategory = focused; if (selectedCategory == 3) refreshInstalledApps(); invalidate(); }
                 return true;
             }
             return super.onKeyDown(key, event);
         }
 
+        @Override public boolean onKeyLongPress(int key, KeyEvent event) {
+            if (key == KeyEvent.KEYCODE_HOME) { RecentAppsDialog.show(a); return true; }
+            return super.onKeyLongPress(key, event);
+        }
+
+        @Override public boolean onKeyUp(int key, KeyEvent event) {
+            if (key == KeyEvent.KEYCODE_HOME) return true;
+            return super.onKeyUp(key, event);
+        }
 
         private void applyActiveFeaturedCatalog() {
             ArrayList<Bitmap> sourceImages = showingYoutubeCatalog && !youtubeFeaturedBackdrops.isEmpty()
