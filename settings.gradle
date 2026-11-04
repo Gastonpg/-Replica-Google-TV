@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "ReplicaGoogleTV"
-include(":app")
+include(":app", ":pgcontrol")
