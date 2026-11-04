@@ -2,7 +2,7 @@ name: Build PG Leanback test APK
 
 on:
   push:
-    branches: [ "prueba-leanback-tarjetas", "leanback-multitarea-pg" ]
+    branches: [ "prueba-leanback-tarjetas", "leanback-multitarea-pg", "pg-launcher-banner-editor" ]
   workflow_dispatch:
 
 permissions:
