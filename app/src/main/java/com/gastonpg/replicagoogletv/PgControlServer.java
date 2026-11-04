@@ -179,7 +179,7 @@ public final class PgControlServer extends NanoHTTPD {
         for (int i=0;i<a.length();i++) d |= a.charAt(i) ^ b.charAt(i);
         return d == 0;
     }
-    private JSONObject error(String e) throws Exception { JSONObject o = new JSONObject(); o.put("ok", false); o.put("error", e); return o; }
+    private JSONObject error(String e) { JSONObject o = new JSONObject(); try { o.put("ok", false); o.put("error", e); } catch (Exception ignored) { } return o; }
     private Response json(Response.Status status, JSONObject o) {
         Response r = newFixedLengthResponse(status, "application/json; charset=utf-8", o.toString());
         r.addHeader("Cache-Control", "no-store"); return r;
