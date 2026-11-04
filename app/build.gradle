@@ -1,6 +1,10 @@
 plugins {
     id 'com.android.application'
 }
+
+dependencies {
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
+}
 android {
     namespace 'com.gastonpg.replicagoogletv'
     compileSdk 35
