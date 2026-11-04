@@ -25,6 +25,7 @@ public class MainActivity extends Activity {
     final ExecutorService io = Executors.newSingleThreadExecutor();
     final ExecutorService imageWorker = Executors.newSingleThreadExecutor();
     String pendingPackage = "", pendingIcon = "", pendingBanner = "";
+    JSONArray installedApps = new JSONArray();
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -65,6 +66,7 @@ public class MainActivity extends Activity {
             request("GET","/v1/packages",null,data->{
                 appList.removeAllViews(); JSONArray apps=data.optJSONArray("apps"); JSONObject all=cfg.optJSONObject("configs");
                 if(apps==null)return;
+                installedApps = apps;
                 for(int i=0;i<apps.length();i++){
                     JSONObject item=apps.optJSONObject(i);if(item==null)continue;
                     String pkg=item.optString("packageName");
@@ -107,6 +109,8 @@ public class MainActivity extends Activity {
                     request("POST","/v1/launcher/app-config",o,r->{status.setText("Icono original restaurado: "+defaultLabel);if(pkg.equals(pendingPackage))pendingIcon="";});
                 } catch(Exception e){status.setText("No se pudo restaurar el icono.");}
             }).show());
+        Button copyDefault=button("Usar icono original de otra aplicación");card.addView(copyDefault);
+        copyDefault.setOnClickListener(v->chooseDefaultIconSource(pkg,defaultLabel));
         Button choose=button("Subir imagen personalizada");card.addView(choose);
         choose.setOnClickListener(v->{pendingPackage=pkg;Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("image/*");startActivityForResult(i,44);});
         TextView bannerTitle=text("PG BANNER STUDIO · BANNERS LEANBACK",14,true);card.addView(bannerTitle);
@@ -138,6 +142,31 @@ public class MainActivity extends Activity {
             if(pkg.equals(pendingPackage)&&!pendingIcon.isEmpty())o.put("iconBase64",pendingIcon);
             request("POST","/v1/launcher/app-config",o,r->{status.setText("Configuración aplicada a "+defaultLabel);if(pkg.equals(pendingPackage))pendingIcon="";});
         }catch(Exception e){status.setText("Revisá los valores de tamaño y orden.");}});
+    }
+
+    void chooseDefaultIconSource(String targetPackage,String targetLabel) {
+        if(installedApps==null||installedApps.length()==0){status.setText("Primero conectá PG Control para cargar las aplicaciones.");return;}
+        java.util.ArrayList<String> labels=new java.util.ArrayList<>();
+        java.util.ArrayList<String> packages=new java.util.ArrayList<>();
+        for(int i=0;i<installedApps.length();i++){
+            JSONObject item=installedApps.optJSONObject(i);if(item==null)continue;
+            String sourcePkg=item.optString("packageName","");
+            if(sourcePkg.isEmpty())continue;
+            packages.add(sourcePkg);
+            labels.add(item.optString("label",sourcePkg)+"  ·  "+sourcePkg);
+        }
+        String[] choices=labels.toArray(new String[0]);
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("Elegir icono original")
+            .setMessage("Seleccioná una aplicación instalada. Su icono de fábrica se copiará como icono personalizado de "+targetLabel+".")
+            .setItems(choices,(dialog,which)->{
+                String sourcePackage=packages.get(which);
+                try{
+                    JSONObject o=new JSONObject();o.put("packageName",targetPackage);o.put("copyIconFromPackage",sourcePackage);
+                    status.setText("Copiando icono original de "+labels.get(which)+"…");
+                    request("POST","/v1/launcher/app-config",o,r->status.setText("Icono original copiado a "+targetLabel+"."));
+                }catch(Exception e){status.setText("No se pudo preparar la copia del icono.");}
+            }).setNegativeButton("Cancelar",null).show();
     }
 
     @Override protected void onActivityResult(int request,int result,Intent data){
