@@ -21,8 +21,8 @@ android {
     buildTypes {
         leanbackTest {
             initWith debug
-            applicationIdSuffix '.leanbackmultitask'
-            versionNameSuffix '-leanback-multitask'
+            applicationIdSuffix '.bannereditor'
+            versionNameSuffix '-banner-editor'
             debuggable true
             matchingFallbacks = ['debug']
         }
