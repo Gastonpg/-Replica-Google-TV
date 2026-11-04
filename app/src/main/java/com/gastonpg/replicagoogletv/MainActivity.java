@@ -306,6 +306,7 @@ public class MainActivity extends Activity {
         private int selectedCategory = 0;
         private int appScroll = 0;
         private int categoryScroll = 0;
+        private int categoryAppScroll = 0;
         private final ArrayList<ResolveInfo> installedApps = new ArrayList<>();
         private final HashMap<String, JSONObject> appConfigs = new HashMap<>();
         private final HashSet<String> excludedPackages = new HashSet<>(Arrays.asList(
@@ -736,8 +737,9 @@ public class MainActivity extends Activity {
                         float y = 850 + row * 108;
                         label(category, 80, y + 43, 19, 0xFFE7EDF6, true);
                         ArrayList<Integer> indices = appsInCategory(category);
-                        for (int j = 0; j < indices.size() && j < 6; j++) {
-                            drawControlAppCard(indices.get(j), 285 + j * 260, y + 5, 244, 78);
+                        for (int j = categoryAppScroll; j < indices.size() && j < categoryAppScroll + 6; j++) {
+                            int slot = j - categoryAppScroll;
+                            drawControlAppCard(indices.get(j), 285 + slot * 260, y + 5, 244, 78);
                         }
                     }
                 } else {
@@ -746,9 +748,10 @@ public class MainActivity extends Activity {
                         String category = categories.get(categoryScroll);
                         label(category + "  ·  " + (categoryScroll + 1) + "/" + categories.size(), 80, 844, 22, 0xFFE7EDF6, true);
                         ArrayList<Integer> indices = appsInCategory(category);
-                        for (int j = 0; j < indices.size() && j < 8; j++) {
-                            float x = 72 + (j % 4) * 455;
-                            float y = 858 + (j / 4) * 100;
+                        for (int j = categoryAppScroll; j < indices.size() && j < categoryAppScroll + 8; j++) {
+                            int slot = j - categoryAppScroll;
+                            float x = 72 + (slot % 4) * 455;
+                            float y = 858 + (slot / 4) * 100;
                             drawControlAppCard(indices.get(j), x, y, 420, 84);
                         }
                     }
@@ -799,7 +802,8 @@ public class MainActivity extends Activity {
                             if (y < 855 + row * 108 || y > 855 + row * 108 + 78) continue;
                             ArrayList<Integer> indices = appsInCategory(cats.get(categoryScroll + row));
                             int slot = (int)((x - 285) / 260);
-                            if (slot >= 0 && slot < indices.size() && slot < 6 && x <= 285 + slot * 260 + 244) hit = indices.get(slot);
+                            int actual = categoryAppScroll + slot;
+                            if (slot >= 0 && actual < indices.size() && slot < 6 && x <= 285 + slot * 260 + 244) hit = indices.get(actual);
                         }
                     } else if ("category_grid".equals(layout)) {
                         ArrayList<String> cats = availableAppCategories();
@@ -808,7 +812,8 @@ public class MainActivity extends Activity {
                             int col = Math.max(0, Math.min(3, (int)((x - 72) / 455)));
                             int row = y >= 958 ? 1 : 0;
                             int slot = row * 4 + col;
-                            if (slot < indices.size() && x <= 72 + col * 455 + 420 && y <= 858 + row * 100 + 84) hit = indices.get(slot);
+                            int actual = categoryAppScroll + slot;
+                            if (actual < indices.size() && x <= 72 + col * 455 + 420 && y <= 858 + row * 100 + 84) hit = indices.get(actual);
                         }
                     } else {
                         float cardX = 72;
@@ -845,6 +850,11 @@ public class MainActivity extends Activity {
                         ArrayList<Integer> visible = visibleAppIndices();
                         int pos = visible.indexOf(focused - 100);
                         if (pos > 0) focused = 100 + visible.get(pos - 1);
+                        else if (categoryAppScroll > 0) {
+                            categoryAppScroll--;
+                            ArrayList<Integer> page = visibleAppIndices();
+                            if (!page.isEmpty()) focused = 100 + page.get(page.size() - 1);
+                        }
                     } else {
                         int idx = focused - 100;
                         if (idx > 0) {
@@ -870,6 +880,16 @@ public class MainActivity extends Activity {
                         ArrayList<Integer> visible = visibleAppIndices();
                         int pos = visible.indexOf(focused - 100);
                         if (pos >= 0 && pos < visible.size() - 1) focused = 100 + visible.get(pos + 1);
+                        else {
+                            String category = appCategory(focused - 100);
+                            ArrayList<Integer> same = appsInCategory(category);
+                            int local = same.indexOf(focused - 100);
+                            int limit = "category_rows".equals(layout) ? 6 : 8;
+                            if (local >= categoryAppScroll + limit && categoryAppScroll + limit < same.size()) {
+                                categoryAppScroll++;
+                                focused = 100 + same.get(categoryAppScroll + limit - 1);
+                            }
+                        }
                     } else {
                         int idx = focused - 100;
                         if (idx < installedApps.size() - 1) {
@@ -894,7 +914,7 @@ public class MainActivity extends Activity {
                     if ("category_rows".equals(layout) || "category_grid".equals(layout)) {
                         ArrayList<String> cats = availableAppCategories();
                         int max = Math.max(0, cats.size() - ("category_rows".equals(layout) ? 2 : 1));
-                        categoryScroll = Math.min(max, categoryScroll + 1);
+                        categoryScroll = Math.min(max, categoryScroll + 1); categoryAppScroll = 0;
                         if (!cats.isEmpty()) { ArrayList<Integer> ids = appsInCategory(cats.get(categoryScroll)); if (!ids.isEmpty()) focused = 100 + ids.get(0); }
                         invalidate(); return true;
                     }
@@ -909,7 +929,7 @@ public class MainActivity extends Activity {
                 if (focused >= 100) {
                     String layout = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("apps_layout", "horizontal");
                     if ("category_rows".equals(layout) || "category_grid".equals(layout)) {
-                        categoryScroll = Math.max(0, categoryScroll - 1);
+                        categoryScroll = Math.max(0, categoryScroll - 1); categoryAppScroll = 0;
                         ArrayList<String> cats = availableAppCategories();
                         if (!cats.isEmpty()) { ArrayList<Integer> ids = appsInCategory(cats.get(categoryScroll)); if (!ids.isEmpty()) focused = 100 + ids.get(0); }
                         invalidate(); return true;
@@ -1255,7 +1275,7 @@ public class MainActivity extends Activity {
                 for (int r = 0; r < rows && categoryScroll + r < cats.size(); r++) {
                     ArrayList<Integer> ids = appsInCategory(cats.get(categoryScroll + r));
                     int limit = "category_rows".equals(layout) ? 6 : 8;
-                    for (int j = 0; j < ids.size() && j < limit; j++) result.add(ids.get(j));
+                    for (int j = categoryAppScroll; j < ids.size() && j < categoryAppScroll + limit; j++) result.add(ids.get(j));
                 }
             } else {
                 for (int i = appScroll; i < installedApps.size() && i < appScroll + 8; i++) result.add(i);
