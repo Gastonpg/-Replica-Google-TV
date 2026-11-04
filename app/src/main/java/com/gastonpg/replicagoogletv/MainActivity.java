@@ -72,6 +72,55 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
+    private void installTvRemoteNavigation(AlertDialog dialog, View preferredFocus) {
+        dialog.setOnShowListener(d -> {
+            android.view.Window window = dialog.getWindow();
+            if (window == null) return;
+            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
+            View decor = window.getDecorView();
+            decor.setFocusable(true);
+            decor.setFocusableInTouchMode(true);
+            decor.post(() -> {
+                View target = preferredFocus != null ? preferredFocus : decor;
+                if (!target.isFocusable()) {
+                    ArrayList<View> candidates = new ArrayList<>(decor.getFocusables(View.FOCUS_FORWARD));
+                    if (!candidates.isEmpty()) target = candidates.get(0);
+                }
+                target.requestFocus();
+            });
+        });
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            if (keyCode == KeyEvent.KEYCODE_BACK) return false;
+            int direction;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) direction = View.FOCUS_UP;
+            else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) direction = View.FOCUS_DOWN;
+            else if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) direction = View.FOCUS_LEFT;
+            else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) direction = View.FOCUS_RIGHT;
+            else return false;
+
+            View current = dialog.getWindow() == null ? null : dialog.getWindow().getCurrentFocus();
+            if (current instanceof EditText &&
+                (direction == View.FOCUS_LEFT || direction == View.FOCUS_RIGHT)) return false;
+            if (current == null && preferredFocus != null) {
+                preferredFocus.requestFocus();
+                return true;
+            }
+            View next = current == null ? null : current.focusSearch(direction);
+            if (next != null && next != current && next.requestFocus()) return true;
+
+            View root = dialog.getWindow() == null ? null : dialog.getWindow().getDecorView();
+            if (root == null) return false;
+            ArrayList<View> candidates = new ArrayList<>(root.getFocusables(View.FOCUS_FORWARD));
+            if (candidates.isEmpty()) return false;
+            int index = candidates.indexOf(current);
+            int step = (direction == View.FOCUS_LEFT || direction == View.FOCUS_UP) ? -1 : 1;
+            int nextIndex = (index + step + candidates.size()) % candidates.size();
+            candidates.get(nextIndex).requestFocus();
+            return true;
+        });
+    }
+
     private void showAppBannerMenu(String packageName, String appLabel) {
         android.widget.LinearLayout menu = new android.widget.LinearLayout(this);
         menu.setOrientation(android.widget.LinearLayout.VERTICAL);
@@ -298,6 +347,7 @@ public class MainActivity extends Activity {
             .setView(grid)
             .setNegativeButton("Cancelar", (d, w) -> pendingBannerPackage = null)
             .create();
+        installTvRemoteNavigation(dialog, grid);
         grid.setOnItemClickListener((parent, view, position, id) -> {
             BannerImageItem selected = images.get(position);
             String target = pendingBannerPackage;
@@ -422,7 +472,7 @@ public class MainActivity extends Activity {
         panel.addView(connectControl, new android.widget.LinearLayout.LayoutParams(-1, -2));
         connectControl.setOnClickListener(v -> showPgControlConnection());
 
-        new AlertDialog.Builder(this).setTitle("Configuración de TV Launcher PG")
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Configuración de TV Launcher PG")
             .setMessage("Conectá varias fuentes para darle más variedad al catálogo. Las claves se guardan en este dispositivo.")
             .setView(panel)
             .setNegativeButton("Cancelar", null)
@@ -437,8 +487,9 @@ public class MainActivity extends Activity {
                     if (tmdbKey.isEmpty() && youtubeKey.isEmpty())
                         Toast.makeText(this, "Agregá al menos una clave API para cargar contenido", Toast.LENGTH_LONG).show();
                 }
-            })
-            .show();
+            }).create();
+        installTvRemoteNavigation(dialog, tmdbInput);
+        dialog.show();
     }
 
     private void showPgControlConnection() {
@@ -471,14 +522,16 @@ public class MainActivity extends Activity {
             + "Dirección: http://" + hostIp + ":8765\n\n"
             + "Token: " + PgControlServer.token(this)
             + "\n\nIngresá estos datos en PG Control.";
-        new AlertDialog.Builder(this).setTitle("Conectar PG Control")
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Conectar PG Control")
             .setMessage(details)
             .setNeutralButton("Copiar datos", (d,w) -> {
                 android.content.ClipboardManager clipboard = (android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("PG Control", "http://" + hostIp + ":8765\\n" + PgControlServer.token(this)));
                 Toast.makeText(this, "Datos copiados", Toast.LENGTH_SHORT).show();
             })
-            .setPositiveButton("Listo", null).show();
+            .setPositiveButton("Listo", null).create();
+        installTvRemoteNavigation(dialog, null);
+        dialog.show();
     }
 
     private void showLauncherColors() {
@@ -488,24 +541,28 @@ public class MainActivity extends Activity {
         int selected = prefs.getInt("launcher_theme_color", colors[0]);
         int checked = 0;
         for (int i = 0; i < colors.length; i++) if (colors[i] == selected) checked = i;
-        new AlertDialog.Builder(this).setTitle("Color general del launcher")
-            .setSingleChoiceItems(names, checked, (dialog, which) -> {
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Color general del launcher")
+            .setSingleChoiceItems(names, checked, (d, which) -> {
                 prefs.edit().putInt("launcher_theme_color", colors[which]).apply();
                 if (home != null) home.setThemeColor(colors[which]);
-                dialog.dismiss();
-            }).setNegativeButton("Cancelar", null).show();
+                d.dismiss();
+            }).setNegativeButton("Cancelar", null).create();
+        installTvRemoteNavigation(dialog, null);
+        dialog.show();
     }
 
     private void showSearch() {
         final EditText input = new EditText(this);
         input.setSingleLine(true);
         input.setHint("Buscar aplicación");
-        new AlertDialog.Builder(this).setTitle("Buscar")
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("Buscar")
             .setView(input).setNegativeButton("Cancelar", null)
             .setPositiveButton("Buscar", (d,w) -> {
                 String term = input.getText().toString().trim().toLowerCase(Locale.ROOT);
                 if (home != null) home.findApp(term);
-            }).show();
+            }).create();
+        installTvRemoteNavigation(dialog, input);
+        dialog.show();
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
