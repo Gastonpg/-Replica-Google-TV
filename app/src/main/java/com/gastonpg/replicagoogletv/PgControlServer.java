@@ -146,6 +146,31 @@ public final class PgControlServer extends NanoHTTPD {
                 return json(Response.Status.INTERNAL_ERROR, error("icon_restore_failed"));
             cfg.remove("hasCustomIcon");
         }
+        if (in.optBoolean("removeCustomBanner", false)) {
+            File dir = new File(app.getFilesDir(), "pg_control_banners");
+            String safe = pkg.replaceAll("[^A-Za-z0-9_.]", "_");
+            File custom = new File(dir, safe + ".png");
+            if (custom.exists() && !custom.delete())
+                return json(Response.Status.INTERNAL_ERROR, error("banner_remove_failed"));
+            cfg.remove("hasCustomBanner");
+        }
+        if (in.has("bannerBase64")) {
+            String encoded = in.optString("bannerBase64", "");
+            if (encoded.length() > 9000000) return json(Response.Status.BAD_REQUEST, error("banner_too_large"));
+            byte[] bytes = Base64.decode(encoded, Base64.DEFAULT);
+            Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            if (bmp == null || bmp.getWidth() != 320 || bmp.getHeight() != 180) {
+                if (bmp != null) bmp.recycle();
+                return json(Response.Status.BAD_REQUEST, error("banner_must_be_320x180"));
+            }
+            File dir = new File(app.getFilesDir(), "pg_control_banners");
+            if (!dir.exists() && !dir.mkdirs()) { bmp.recycle(); return json(Response.Status.INTERNAL_ERROR, error("banner_storage_failed")); }
+            String safe = pkg.replaceAll("[^A-Za-z0-9_.]", "_");
+            try (FileOutputStream out = new FileOutputStream(new File(dir, safe + ".png"))) {
+                bmp.compress(Bitmap.CompressFormat.PNG, 100, out);
+            } finally { bmp.recycle(); }
+            cfg.put("hasCustomBanner", true);
+        }
         if (in.has("iconBase64")) {
             String encoded = in.optString("iconBase64", "");
             if (encoded.length() > 1400000) return json(Response.Status.BAD_REQUEST, error("icon_too_large"));
