@@ -33,6 +33,11 @@ public class MainActivity extends Activity {
     private static final String PROFILE_URI = "profile_image_uri";
     private TVHome home;
     private String pendingBannerPackage;
+    // The banner dialog is controlled at Activity level so D-pad input never depends on Android's focus handling.
+    private AlertDialog activeBannerDialog;
+    private Button bannerChooseButton;
+    private Button bannerRestoreButton;
+    private int bannerMenuSelection = 0;
     private final BroadcastReceiver packageChangeReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (home != null) {
@@ -73,17 +78,17 @@ public class MainActivity extends Activity {
         int pad = (int)(getResources().getDisplayMetrics().density * 18);
         menu.setPadding(pad, pad, pad, pad);
 
-        android.widget.Button choose = new android.widget.Button(this);
+        Button choose = new Button(this);
         choose.setText("Elegir imagen de banner");
-        choose.setFocusable(true);
-        choose.setFocusableInTouchMode(true);
-        menu.addView(choose, new android.widget.LinearLayout.LayoutParams(-1, (int)(56 * getResources().getDisplayMetrics().density)));
+        choose.setAllCaps(false);
+        choose.setFocusable(false);
+        menu.addView(choose, new android.widget.LinearLayout.LayoutParams(-1, (int)(58 * getResources().getDisplayMetrics().density)));
 
-        android.widget.Button restore = new android.widget.Button(this);
+        Button restore = new Button(this);
         restore.setText("Restaurar banner original");
-        restore.setFocusable(true);
-        restore.setFocusableInTouchMode(true);
-        android.widget.LinearLayout.LayoutParams restoreParams = new android.widget.LinearLayout.LayoutParams(-1, (int)(56 * getResources().getDisplayMetrics().density));
+        restore.setAllCaps(false);
+        restore.setFocusable(false);
+        android.widget.LinearLayout.LayoutParams restoreParams = new android.widget.LinearLayout.LayoutParams(-1, (int)(58 * getResources().getDisplayMetrics().density));
         restoreParams.topMargin = pad / 2;
         menu.addView(restore, restoreParams);
 
@@ -92,18 +97,88 @@ public class MainActivity extends Activity {
             .setView(menu)
             .setNegativeButton("Cancelar", null)
             .create();
+
+        bannerChooseButton = choose;
+        bannerRestoreButton = restore;
+        bannerMenuSelection = 0;
+        activeBannerDialog = dialog;
+
+        Runnable updateSelection = () -> {
+            if (bannerChooseButton != null) {
+                bannerChooseButton.setSelected(bannerMenuSelection == 0);
+                bannerChooseButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    bannerMenuSelection == 0 ? 0xFF315A86 : 0xFF424242));
+            }
+            if (bannerRestoreButton != null) {
+                bannerRestoreButton.setSelected(bannerMenuSelection == 1);
+                bannerRestoreButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                    bannerMenuSelection == 1 ? 0xFF315A86 : 0xFF424242));
+            }
+        };
         choose.setOnClickListener(v -> {
+            if (activeBannerDialog == dialog) activeBannerDialog = null;
             dialog.dismiss();
+            bannerChooseButton = null;
+            bannerRestoreButton = null;
             chooseAppBanner(packageName);
         });
         restore.setOnClickListener(v -> {
+            if (activeBannerDialog == dialog) activeBannerDialog = null;
             dialog.dismiss();
+            bannerChooseButton = null;
+            bannerRestoreButton = null;
             restoreAppBanner(packageName);
         });
-        dialog.setOnShowListener(d -> choose.requestFocus());
+        dialog.setOnDismissListener(d -> {
+            if (activeBannerDialog == dialog) activeBannerDialog = null;
+            bannerChooseButton = null;
+            bannerRestoreButton = null;
+        });
         dialog.show();
         dialog.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels * 0.72f), -2);
-        choose.requestFocus();
+        updateSelection.run();
+    }
+
+    @Override public boolean dispatchKeyEvent(KeyEvent event) {
+        // Handle remote keys before the underlying TVHome view can swallow them.
+        if (activeBannerDialog != null && activeBannerDialog.isShowing()) {
+            int key = event.getKeyCode();
+            if (key == KeyEvent.KEYCODE_HOME || key == KeyEvent.KEYCODE_DPAD_UP ||
+                key == KeyEvent.KEYCODE_DPAD_DOWN || key == KeyEvent.KEYCODE_DPAD_LEFT ||
+                key == KeyEvent.KEYCODE_DPAD_RIGHT || key == KeyEvent.KEYCODE_DPAD_CENTER ||
+                key == KeyEvent.KEYCODE_ENTER || key == KeyEvent.KEYCODE_BACK) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    if (key == KeyEvent.KEYCODE_DPAD_UP || key == KeyEvent.KEYCODE_DPAD_DOWN ||
+                        key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                        if (event.getRepeatCount() == 0) {
+                            bannerMenuSelection = 1 - bannerMenuSelection;
+                            if (bannerChooseButton != null && bannerRestoreButton != null) {
+                                bannerChooseButton.setSelected(bannerMenuSelection == 0);
+                                bannerChooseButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                                    bannerMenuSelection == 0 ? 0xFF315A86 : 0xFF424242));
+                                bannerRestoreButton.setSelected(bannerMenuSelection == 1);
+                                bannerRestoreButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+                                    bannerMenuSelection == 1 ? 0xFF315A86 : 0xFF424242));
+                            }
+                        }
+                    }
+                    return true;
+                }
+                if (event.getAction() == KeyEvent.ACTION_UP) {
+                    if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER) {
+                        Button selected = bannerMenuSelection == 0 ? bannerChooseButton : bannerRestoreButton;
+                        if (selected != null) selected.performClick();
+                    } else if (key == KeyEvent.KEYCODE_BACK) {
+                        activeBannerDialog.dismiss();
+                    }
+                    // HOME is deliberately consumed here: it must not trigger the launcher's
+                    // double-HOME recent-apps handler while this dialog is active.
+                    return true;
+                }
+                return true;
+            }
+        }
+        return super.dispatchKeyEvent(event);
     }
 
     private void chooseAppBanner(String packageName) {
