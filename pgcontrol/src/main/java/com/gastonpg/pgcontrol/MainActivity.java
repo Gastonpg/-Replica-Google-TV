@@ -21,7 +21,7 @@ public class MainActivity extends Activity {
     TextView status;
     LinearLayout appList;
     final ExecutorService io = Executors.newSingleThreadExecutor();
-    String pendingPackage = "", pendingIcon = "";
+    String pendingPackage = "", pendingIcon = "", pendingBanner = "";
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -105,6 +105,15 @@ public class MainActivity extends Activity {
             }).show());
         Button choose=button("Subir imagen personalizada");card.addView(choose);
         choose.setOnClickListener(v->{pendingPackage=pkg;Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("image/*");startActivityForResult(i,44);});
+        TextView bannerTitle=text("PG BANNER STUDIO · BANNERS LEANBACK",14,true);card.addView(bannerTitle);
+        TextView bannerHelp=text("Importá una imagen de Gemini. Se recorta al centro y se convierte a PNG 320 × 180, sin pedirle a Gemini una resolución específica.",11,false);card.addView(bannerHelp);
+        Button chooseBanner=button("Importar y convertir imagen para banner");card.addView(chooseBanner);
+        chooseBanner.setOnClickListener(v->{pendingPackage=pkg;Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("image/*");startActivityForResult(i,45);});
+        Button applyBanner=button("Aplicar banner Leanback");card.addView(applyBanner);
+        applyBanner.setOnClickListener(v->{if(!pkg.equals(pendingPackage)||pendingBanner.isEmpty()){status.setText("Primero importá una imagen en PG Banner Studio para esta aplicación.");return;}
+            try{JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("bannerBase64",pendingBanner);request("POST","/v1/launcher/app-config",o,r->{status.setText("Banner Leanback aplicado a "+defaultLabel);pendingBanner="";});}catch(Exception e){status.setText("Error preparando el banner.");}});
+        Button removeBanner=button("Quitar banner personalizado");card.addView(removeBanner);
+        removeBanner.setOnClickListener(v->{try{JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("removeCustomBanner",true);request("POST","/v1/launcher/app-config",o,r->status.setText("Banner personalizado quitado: "+defaultLabel));}catch(Exception e){status.setText("No se pudo quitar el banner.");}});
         Button iconOnly=button("Aplicar solo el icono");card.addView(iconOnly);
         iconOnly.setOnClickListener(v->{if(!pkg.equals(pendingPackage)||pendingIcon.isEmpty()){status.setText("Primero elegí un icono para esta aplicación.");return;}
             try{JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("iconBase64",pendingIcon);request("POST","/v1/launcher/app-config",o,r->{status.setText("Icono aplicado a "+defaultLabel);pendingIcon="";});}catch(Exception e){status.setText("Error preparando el icono.");}});
@@ -121,7 +130,26 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onActivityResult(int request,int result,Intent data){
-        super.onActivityResult(request,result,data);if(request!=44||result!=RESULT_OK||data==null||data.getData()==null)return;
+        super.onActivityResult(request,result,data);
+        if(result!=RESULT_OK||data==null||data.getData()==null)return;
+        if(request==45){
+            try(InputStream in=getContentResolver().openInputStream(data.getData())){
+                Bitmap source=BitmapFactory.decodeStream(in);if(source==null)throw new Exception("invalid image");
+                int sw=source.getWidth(),sh=source.getHeight();float target=16f/9f;
+                int cw=sw,ch=sh;
+                if(sw/(float)sh>target)cw=Math.max(1,Math.round(sh*target));
+                else ch=Math.max(1,Math.round(sw/target));
+                int left=(sw-cw)/2,top=(sh-ch)/2;
+                Bitmap crop=Bitmap.createBitmap(source,left,top,cw,ch);
+                Bitmap banner=Bitmap.createScaledBitmap(crop,320,180,true);
+                ByteArrayOutputStream out=new ByteArrayOutputStream();banner.compress(Bitmap.CompressFormat.PNG,100,out);
+                pendingBanner=Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP);
+                if(banner!=crop)banner.recycle();if(crop!=source)crop.recycle();source.recycle();
+                status.setText("PG Banner Studio: imagen convertida a 320 × 180. Tocá Aplicar banner Leanback.");
+            }catch(Exception e){status.setText("No se pudo convertir la imagen para banner.");}
+            return;
+        }
+        if(request!=44)return;
         try(InputStream in=getContentResolver().openInputStream(data.getData())){
             Bitmap bmp=BitmapFactory.decodeStream(in);if(bmp==null)throw new Exception("invalid image");
             float scale=Math.min(1f,256f/Math.max(bmp.getWidth(),bmp.getHeight()));
