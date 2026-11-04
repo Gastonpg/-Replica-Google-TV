@@ -93,7 +93,17 @@ public class MainActivity extends Activity {
         int rv=cfg.optInt("cardRadiusDp",16);radius.setSelection(rv==0?0:rv==8?1:rv==28?3:2);card.addView(radius);
         EditText order=number("Orden (0 primero)",cfg.optInt("order",10000));card.addView(order);
         CheckBox hidden=new CheckBox(this);hidden.setTextColor(Color.WHITE);hidden.setText("Ocultar esta aplicación");hidden.setChecked(cfg.optBoolean("hidden",false));card.addView(hidden);
-        Button choose=button("Elegir icono personalizado");card.addView(choose);
+        Button original=button("Usar / restaurar icono original de la app");card.addView(original);
+        original.setOnClickListener(v->new android.app.AlertDialog.Builder(this)
+            .setTitle("Icono original")
+            .setMessage("Se quitará la imagen personalizada y el launcher volverá a usar el icono incluido en la aplicación instalada.")
+            .setNegativeButton("Cancelar",null)
+            .setPositiveButton("Restaurar",(d,w)->{
+                try { JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("restoreOriginalIcon",true);
+                    request("POST","/v1/launcher/app-config",o,r->{status.setText("Icono original restaurado: "+defaultLabel);if(pkg.equals(pendingPackage))pendingIcon="";});
+                } catch(Exception e){status.setText("No se pudo restaurar el icono.");}
+            }).show());
+        Button choose=button("Subir imagen personalizada");card.addView(choose);
         choose.setOnClickListener(v->{pendingPackage=pkg;Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("image/*");startActivityForResult(i,44);});
         Button iconOnly=button("Aplicar solo el icono");card.addView(iconOnly);
         iconOnly.setOnClickListener(v->{if(!pkg.equals(pendingPackage)||pendingIcon.isEmpty()){status.setText("Primero elegí un icono para esta aplicación.");return;}
