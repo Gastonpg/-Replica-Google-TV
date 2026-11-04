@@ -112,6 +112,13 @@ public class MainActivity extends Activity {
         Button applyBanner=button("Aplicar banner Leanback");card.addView(applyBanner);
         applyBanner.setOnClickListener(v->{if(!pkg.equals(pendingPackage)||pendingBanner.isEmpty()){status.setText("Primero importá una imagen en PG Banner Studio para esta aplicación.");return;}
             try{JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("bannerBase64",pendingBanner);request("POST","/v1/launcher/app-config",o,r->{status.setText("Banner Leanback aplicado a "+defaultLabel);pendingBanner="";});}catch(Exception e){status.setText("Error preparando el banner.");}});
+        Button copyBannerDeclaration=button("Copiar declaración Android TV");card.addView(copyBannerDeclaration);
+        copyBannerDeclaration.setOnClickListener(v->{
+            String declaration = "<application\\n    android:banner=\\\"@drawable/tv_banner\\\">\\n    <!-- Para una actividad concreta también podés usar: -->\\n    <activity\\n        android:name=\\\".MainActivity\\\"\\n        android:banner=\\\"@drawable/tv_banner\\\" />\\n</application>";
+            android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Declaración Leanback",declaration));
+            status.setText("Declaración copiada. Colocá el PNG en res/drawable-nodpi/tv_banner.png y agregá android:banner al Manifest del APK fuente.");
+        });
         Button removeBanner=button("Quitar banner personalizado");card.addView(removeBanner);
         removeBanner.setOnClickListener(v->{try{JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("removeCustomBanner",true);request("POST","/v1/launcher/app-config",o,r->status.setText("Banner personalizado quitado: "+defaultLabel));}catch(Exception e){status.setText("No se pudo quitar el banner.");}});
         Button iconOnly=button("Aplicar solo el icono");card.addView(iconOnly);
