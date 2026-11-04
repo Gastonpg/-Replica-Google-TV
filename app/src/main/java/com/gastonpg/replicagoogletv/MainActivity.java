@@ -11,6 +11,7 @@ import android.content.*;
 import android.content.pm.*;
 import android.net.Uri;
 import java.io.InputStream;
+import java.io.File;
 import java.io.ByteArrayOutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
