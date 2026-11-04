@@ -12,6 +12,7 @@ import android.content.pm.*;
 import android.net.Uri;
 import java.io.InputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -26,9 +27,11 @@ import android.util.LruCache;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_PROFILE_IMAGE = 731;
+    private static final int REQUEST_APP_BANNER = 732;
     private static final String PREFS = "pg_launcher_preferences";
     private static final String PROFILE_URI = "profile_image_uri";
     private TVHome home;
+    private String pendingBannerPackage;
     private final BroadcastReceiver packageChangeReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (home != null) {
@@ -61,6 +64,93 @@ public class MainActivity extends Activity {
     @Override protected void onDestroy() {
         try { unregisterReceiver(packageChangeReceiver); } catch (Exception ignored) { }
         super.onDestroy();
+    }
+
+    private void showAppBannerMenu(String packageName, String appLabel) {
+        final String[] actions = {"Elegir imagen de banner", "Restaurar banner original"};
+        new AlertDialog.Builder(this)
+            .setTitle("Banner · " + appLabel)
+            .setItems(actions, (dialog, which) -> {
+                if (which == 0) chooseAppBanner(packageName);
+                else restoreAppBanner(packageName);
+            })
+            .setNegativeButton("Cancelar", null)
+            .show();
+    }
+
+    private void chooseAppBanner(String packageName) {
+        pendingBannerPackage = packageName;
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("image/*");
+        try { startActivityForResult(intent, REQUEST_APP_BANNER); }
+        catch (Exception e) {
+            pendingBannerPackage = null;
+            Toast.makeText(this, "No se pudo abrir el selector de imágenes", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void restoreAppBanner(String packageName) {
+        try {
+            File dir = new File(getFilesDir(), "pg_control_banners");
+            File custom = new File(dir, packageName.replaceAll("[^A-Za-z0-9_.]", "_") + ".png");
+            if (custom.exists() && !custom.delete()) throw new Exception("No se pudo borrar el banner");
+            android.content.SharedPreferences prefs = getSharedPreferences("pg_launcher_app_config", MODE_PRIVATE);
+            JSONObject cfg = new JSONObject(prefs.getString(packageName, "{}"));
+            cfg.remove("hasCustomBanner");
+            prefs.edit().putString(packageName, cfg.toString()).apply();
+            if (home != null) home.refreshBannerConfig();
+            Toast.makeText(this, "Banner original restaurado", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "No se pudo restaurar el banner", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void saveAppBanner(Uri uri, String packageName) {
+        try {
+            android.content.ContentResolver resolver = getContentResolver();
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            try (InputStream in = resolver.openInputStream(uri)) { BitmapFactory.decodeStream(in, null, bounds); }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new Exception("Imagen no válida");
+            int sample = 1;
+            while (bounds.outWidth / (sample * 2) >= 640 && bounds.outHeight / (sample * 2) >= 360) sample *= 2;
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = sample;
+            Bitmap source;
+            try (InputStream in = resolver.openInputStream(uri)) { source = BitmapFactory.decodeStream(in, null, opts); }
+            if (source == null) throw new Exception("No se pudo leer la imagen");
+            float scale = Math.max(320f / source.getWidth(), 180f / source.getHeight());
+            int scaledW = Math.max(320, Math.round(source.getWidth() * scale));
+            int scaledH = Math.max(180, Math.round(source.getHeight() * scale));
+            Bitmap scaled = Bitmap.createScaledBitmap(source, scaledW, scaledH, true);
+            if (scaled != source) source.recycle();
+            int left = Math.max(0, (scaledW - 320) / 2);
+            int top = Math.max(0, (scaledH - 180) / 2);
+            Bitmap banner = Bitmap.createBitmap(scaled, left, top, 320, 180);
+            if (banner != scaled) scaled.recycle();
+
+            File dir = new File(getFilesDir(), "pg_control_banners");
+            if (!dir.exists() && !dir.mkdirs()) throw new Exception("No se pudo crear la carpeta de banners");
+            String safe = packageName.replaceAll("[^A-Za-z0-9_.]", "_");
+            File target = new File(dir, safe + ".png");
+            File temp = new File(dir, safe + ".tmp");
+            try (FileOutputStream out = new FileOutputStream(temp)) {
+                if (!banner.compress(Bitmap.CompressFormat.PNG, 100, out)) throw new Exception("No se pudo guardar el PNG");
+                out.getFD().sync();
+            } finally { banner.recycle(); }
+            if (target.exists() && !target.delete()) { temp.delete(); throw new Exception("No se pudo reemplazar el banner anterior"); }
+            if (!temp.renameTo(target)) { temp.delete(); throw new Exception("No se pudo finalizar el banner"); }
+
+            android.content.SharedPreferences prefs = getSharedPreferences("pg_launcher_app_config", MODE_PRIVATE);
+            JSONObject cfg = new JSONObject(prefs.getString(packageName, "{}"));
+            cfg.put("hasCustomBanner", true);
+            prefs.edit().putString(packageName, cfg.toString()).apply();
+            if (home != null) home.refreshBannerConfig();
+            Toast.makeText(this, "Banner personalizado aplicado", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "No se pudo aplicar el banner: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     private void chooseProfileImage() {
@@ -205,6 +295,12 @@ public class MainActivity extends Activity {
             getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(PROFILE_URI, uri.toString()).apply();
             if (home != null) home.setProfileImage(uri);
         }
+        else if (requestCode == REQUEST_APP_BANNER) {
+            String targetPackage = pendingBannerPackage;
+            pendingBannerPackage = null;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null && targetPackage != null)
+                saveAppBanner(data.getData(), targetPackage);
+        }
     }
 
     static class TVHome extends View {
@@ -326,6 +422,7 @@ public class MainActivity extends Activity {
             themeColor = a.getSharedPreferences(PREFS, MODE_PRIVATE).getInt("launcher_theme_color", 0xFF263B59);
             setFocusable(true);
             setFocusableInTouchMode(true);
+            setLongClickable(true);
             initSnowParticles();
             // Keep hardware acceleration enabled; software rendering made every glass effect slow.
             try { logoBitmap = BitmapFactory.decodeResource(getResources(), R.drawable.pg_logo); } catch (Exception ignored) { }
@@ -966,6 +1063,16 @@ public class MainActivity extends Activity {
         }
 
         @Override public boolean onKeyLongPress(int key, KeyEvent event) {
+            if ((key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER)
+                && focused >= 100 && focused - 100 < installedApps.size()) {
+                ResolveInfo info = installedApps.get(focused - 100);
+                if (info != null && info.activityInfo != null) {
+                    String packageName = info.activityInfo.packageName;
+                    String appLabel = String.valueOf(info.loadLabel(a.getPackageManager()));
+                    ((MainActivity)a).showAppBannerMenu(packageName, appLabel);
+                    return true;
+                }
+            }
             return super.onKeyLongPress(key, event);
         }
 
