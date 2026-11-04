@@ -19,6 +19,7 @@ import org.json.JSONObject;
 import java.util.*;
 import android.app.AlertDialog;
 import android.widget.EditText;
+import android.widget.Button;
 import android.widget.Toast;
 import android.util.LruCache;
 
@@ -40,6 +41,7 @@ public class MainActivity extends Activity {
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
         home = new TVHome(this);
         setContentView(home);
+        PgControlServer.ensureStarted(this);
         // Keep the app row synchronized when third-party apps are installed, removed or updated.
         IntentFilter packageFilter = new IntentFilter();
         packageFilter.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -48,6 +50,8 @@ public class MainActivity extends Activity {
         packageFilter.addAction(Intent.ACTION_PACKAGE_REPLACED);
         packageFilter.addDataScheme("package");
         registerReceiver(packageChangeReceiver, packageFilter);
+        IntentFilter controlFilter = new IntentFilter("com.gastonpg.replicagoogletv.PG_CONTROL_CONFIG_CHANGED");
+        registerReceiver(packageChangeReceiver, controlFilter);
     }
 
     @Override protected void onDestroy() {
@@ -95,6 +99,12 @@ public class MainActivity extends Activity {
         youtubeInput.setText(prefs.getString("youtube_api_key", ""));
         panel.addView(youtubeInput, new android.widget.LinearLayout.LayoutParams(-1, -2));
 
+        Button connectControl = new Button(this);
+        connectControl.setText("Conectar PG Control (celular)");
+        connectControl.setAllCaps(false);
+        panel.addView(connectControl, new android.widget.LinearLayout.LayoutParams(-1, -2));
+        connectControl.setOnClickListener(v -> showPgControlConnection());
+
         new AlertDialog.Builder(this).setTitle("Configuración de TV Launcher PG")
             .setMessage("Conectá varias fuentes para darle más variedad al catálogo. Las claves se guardan en este dispositivo.")
             .setView(panel)
@@ -112,6 +122,23 @@ public class MainActivity extends Activity {
                 }
             })
             .show();
+    }
+
+    private void showPgControlConnection() {
+        PgControlServer.ensureStarted(this);
+        String ip = "No disponible";
+        try {
+            int address = ((android.net.wifi.WifiManager)getApplicationContext()
+                .getSystemService(WIFI_SERVICE)).getConnectionInfo().getIpAddress();
+            ip = String.format(Locale.US, "%d.%d.%d.%d", address & 255, (address >> 8) & 255,
+                (address >> 16) & 255, (address >> 24) & 255);
+        } catch (Exception ignored) { }
+        String details = "Conectá el celular y el TV Box a la misma red Wi-Fi.\\n\\n"
+            + "Dirección: http://" + ip + ":8765\\n\\n"
+            + "Token: " + PgControlServer.token(this)
+            + "\\n\\nIngresá estos datos en PG Control.";
+        new AlertDialog.Builder(this).setTitle("Conectar PG Control")
+            .setMessage(details).setPositiveButton("Listo", null).show();
     }
 
     private void showLauncherColors() {
@@ -255,6 +282,7 @@ public class MainActivity extends Activity {
         private int selectedCategory = 0;
         private int appScroll = 0;
         private final ArrayList<ResolveInfo> installedApps = new ArrayList<>();
+        private final HashMap<String, JSONObject> appConfigs = new HashMap<>();
         private final HashSet<String> excludedPackages = new HashSet<>(Arrays.asList(
             "com.gastonpg.replicagoogletv",
             "com.tvlaunch.pg"
@@ -1009,27 +1037,57 @@ public class MainActivity extends Activity {
                 byPackage.put(packageName, info);
             }
 
+            appConfigs.clear();
+            android.content.SharedPreferences controlPrefs = a.getSharedPreferences("pg_launcher_app_config", MODE_PRIVATE);
+            for (Map.Entry<String, ?> entry : controlPrefs.getAll().entrySet()) {
+                try { appConfigs.put(entry.getKey(), new JSONObject(String.valueOf(entry.getValue()))); }
+                catch (Exception ignored) { }
+            }
             ArrayList<ResolveInfo> found = new ArrayList<>(byPackage.values());
-            Collections.sort(found, (left, right) ->
-                String.valueOf(left.loadLabel(pm)).compareToIgnoreCase(String.valueOf(right.loadLabel(pm))));
+            Iterator<ResolveInfo> iterator = found.iterator();
+            while (iterator.hasNext()) {
+                ResolveInfo info = iterator.next();
+                JSONObject cfg = appConfigs.get(info.activityInfo.packageName);
+                if (cfg != null && cfg.optBoolean("hidden", false)) iterator.remove();
+            }
+            Collections.sort(found, (left, right) -> {
+                JSONObject lc = appConfigs.get(left.activityInfo.packageName);
+                JSONObject rc = appConfigs.get(right.activityInfo.packageName);
+                int lo = lc == null ? 10000 : lc.optInt("order", 10000);
+                int ro = rc == null ? 10000 : rc.optInt("order", 10000);
+                if (lo != ro) return Integer.compare(lo, ro);
+                String ln = lc == null ? String.valueOf(left.loadLabel(pm)) : lc.optString("label", String.valueOf(left.loadLabel(pm)));
+                String rn = rc == null ? String.valueOf(right.loadLabel(pm)) : rc.optString("label", String.valueOf(right.loadLabel(pm)));
+                return ln.compareToIgnoreCase(rn);
+            });
             installedApps.addAll(found);
 
             apps = new String[installedApps.size()];
+            File iconDir = new File(a.getFilesDir(), "pg_control_icons");
             for (int i = 0; i < installedApps.size(); i++) {
                 ResolveInfo info = installedApps.get(i);
-                apps[i] = String.valueOf(info.loadLabel(pm));
+                String pkg = info.activityInfo.packageName;
+                JSONObject cfg = appConfigs.get(pkg);
+                apps[i] = cfg == null ? String.valueOf(info.loadLabel(pm))
+                    : cfg.optString("label", String.valueOf(info.loadLabel(pm)));
+                Bitmap custom = null;
                 try {
-                    appIconBitmaps.add(drawableToBitmap(info.loadIcon(pm), 54, 54));
-                } catch (Exception ignored) {
-                    appIconBitmaps.add(null);
-                }
-
+                    File customFile = new File(iconDir, pkg.replaceAll("[^A-Za-z0-9_.]", "_") + ".png");
+                    if (customFile.isFile()) custom = BitmapFactory.decodeFile(customFile.getAbsolutePath());
+                } catch (Exception ignored) { }
+                try {
+                    appIconBitmaps.add(custom != null ? drawableToBitmap(new android.graphics.drawable.BitmapDrawable(getResources(), custom), 54, 54)
+                        : drawableToBitmap(info.loadIcon(pm), 54, 54));
+                } catch (Exception ignored) { appIconBitmaps.add(null); }
+                if (custom != null && !custom.isRecycled()) custom.recycle();
             }
             invalidate();
         }
 
         private Bitmap loadAppBanner(ResolveInfo info) {
             if (info == null || info.activityInfo == null) return null;
+            JSONObject cfg = appConfigs.get(info.activityInfo.packageName);
+            if (cfg != null && cfg.optBoolean("hasCustomIcon", false)) return null;
             String key = info.activityInfo.packageName + "/" + info.activityInfo.name;
             Bitmap cached = appBannerCache.get(key);
             if (cached != null) return cached;
