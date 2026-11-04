@@ -818,8 +818,12 @@ public class MainActivity extends Activity {
             if (key == KeyEvent.KEYCODE_DPAD_LEFT) {
                 if (focused >= 100) {
                     int idx = focused - 100;
-                    if (idx > 0) { focused--; if (idx - 1 < appScroll) appScroll = Math.max(0, idx - 1); }
-                    else focused = 3;
+                    if (idx > 0) {
+                        focused--;
+                        String layout = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("apps_layout", "horizontal");
+                        if ("grid".equals(layout)) appScroll = ((focused - 100) / 8) * 8;
+                        else if ("horizontal".equals(layout) && idx - 1 < appScroll) appScroll = Math.max(0, idx - 1);
+                    } else focused = 3;
                 } else if (focused >= 30 && focused <= 34) focused = focused == 30 ? 34 : focused - 1;
                 else if (focused == 20) focused = 24;
                 else if (focused == 24) focused = 4;
@@ -833,7 +837,12 @@ public class MainActivity extends Activity {
             if (key == KeyEvent.KEYCODE_DPAD_RIGHT) {
                 if (focused >= 100) {
                     int idx = focused - 100;
-                    if (idx < installedApps.size() - 1) { focused++; if (idx + 1 >= appScroll + 8) appScroll++; }
+                    if (idx < installedApps.size() - 1) {
+                        focused++;
+                        String layout = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("apps_layout", "horizontal");
+                        if ("grid".equals(layout)) appScroll = ((focused - 100) / 8) * 8;
+                        else if ("horizontal".equals(layout) && idx + 1 >= appScroll + 8) appScroll++;
+                    }
                 } else if (focused >= 30 && focused <= 34) focused = focused == 34 ? 30 : focused + 1;
                 else if (focused == 20) focused = 22;
                 else if (focused == 22) focused = 23;
