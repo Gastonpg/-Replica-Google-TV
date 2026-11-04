@@ -35,6 +35,7 @@ public class MainActivity extends Activity {
     private String pendingBannerPackage;
     // The banner dialog is controlled at Activity level so D-pad input never depends on Android's focus handling.
     private AlertDialog activeBannerDialog;
+    private AlertDialog activeRemoteDialog;
     private Button bannerChooseButton;
     private Button bannerRestoreButton;
     private int bannerMenuSelection = 0;
@@ -73,6 +74,10 @@ public class MainActivity extends Activity {
     }
 
     private void installTvRemoteNavigation(AlertDialog dialog, View preferredFocus) {
+        activeRemoteDialog = dialog;
+        dialog.setOnDismissListener(d -> {
+            if (activeRemoteDialog == dialog) activeRemoteDialog = null;
+        });
         dialog.setOnShowListener(d -> {
             android.view.Window window = dialog.getWindow();
             if (window == null) return;
@@ -81,43 +86,14 @@ public class MainActivity extends Activity {
             decor.setFocusable(true);
             decor.setFocusableInTouchMode(true);
             decor.post(() -> {
-                View target = preferredFocus != null ? preferredFocus : decor;
-                if (!target.isFocusable()) {
+                if (!dialog.isShowing()) return;
+                View target = preferredFocus;
+                if (target == null || !target.isShown() || !target.isFocusable()) {
                     ArrayList<View> candidates = new ArrayList<>(decor.getFocusables(View.FOCUS_FORWARD));
-                    if (!candidates.isEmpty()) target = candidates.get(0);
+                    target = candidates.isEmpty() ? decor : candidates.get(0);
                 }
                 target.requestFocus();
             });
-        });
-        dialog.setOnKeyListener((d, keyCode, event) -> {
-            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
-            if (keyCode == KeyEvent.KEYCODE_BACK) return false;
-            int direction;
-            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) direction = View.FOCUS_UP;
-            else if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) direction = View.FOCUS_DOWN;
-            else if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) direction = View.FOCUS_LEFT;
-            else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) direction = View.FOCUS_RIGHT;
-            else return false;
-
-            View current = dialog.getWindow() == null ? null : dialog.getWindow().getCurrentFocus();
-            if (current instanceof EditText &&
-                (direction == View.FOCUS_LEFT || direction == View.FOCUS_RIGHT)) return false;
-            if (current == null && preferredFocus != null) {
-                preferredFocus.requestFocus();
-                return true;
-            }
-            View next = current == null ? null : current.focusSearch(direction);
-            if (next != null && next != current && next.requestFocus()) return true;
-
-            View root = dialog.getWindow() == null ? null : dialog.getWindow().getDecorView();
-            if (root == null) return false;
-            ArrayList<View> candidates = new ArrayList<>(root.getFocusables(View.FOCUS_FORWARD));
-            if (candidates.isEmpty()) return false;
-            int index = candidates.indexOf(current);
-            int step = (direction == View.FOCUS_LEFT || direction == View.FOCUS_UP) ? -1 : 1;
-            int nextIndex = (index + step + candidates.size()) % candidates.size();
-            candidates.get(nextIndex).requestFocus();
-            return true;
         });
     }
 
@@ -151,6 +127,7 @@ public class MainActivity extends Activity {
         bannerRestoreButton = restore;
         bannerMenuSelection = 0;
         activeBannerDialog = dialog;
+        activeRemoteDialog = dialog;
 
         Runnable updateSelection = () -> {
             if (bannerChooseButton != null) {
@@ -180,6 +157,7 @@ public class MainActivity extends Activity {
         });
         dialog.setOnDismissListener(d -> {
             if (activeBannerDialog == dialog) activeBannerDialog = null;
+            if (activeRemoteDialog == dialog) activeRemoteDialog = null;
             bannerChooseButton = null;
             bannerRestoreButton = null;
         });
@@ -227,140 +205,35 @@ public class MainActivity extends Activity {
                 return true;
             }
         }
+        // Deliver remote input to the active dialog before TVHome handles its own D-pad map.
+        if (activeRemoteDialog != null && activeRemoteDialog.isShowing()) {
+            int key = event.getKeyCode();
+            if (key == KeyEvent.KEYCODE_HOME) return true;
+            if (key == KeyEvent.KEYCODE_DPAD_UP || key == KeyEvent.KEYCODE_DPAD_DOWN ||
+                key == KeyEvent.KEYCODE_DPAD_LEFT || key == KeyEvent.KEYCODE_DPAD_RIGHT ||
+                key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER ||
+                key == KeyEvent.KEYCODE_BACK) {
+                activeRemoteDialog.dispatchKeyEvent(event);
+                return true;
+            }
+        }
         return super.dispatchKeyEvent(event);
     }
 
     private void chooseAppBanner(String packageName) {
         pendingBannerPackage = packageName;
-        if (android.os.Build.VERSION.SDK_INT >= 23 &&
-            checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{android.Manifest.permission.READ_EXTERNAL_STORAGE}, REQUEST_BANNER_STORAGE);
-            return;
-        }
-        showBannerImagePicker();
-    }
-
-    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_BANNER_STORAGE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) showBannerImagePicker();
-            else {
-                pendingBannerPackage = null;
-                Toast.makeText(this, "Se necesita permiso para ver las imágenes del dispositivo", Toast.LENGTH_LONG).show();
-            }
-        }
-    }
-
-    private static class BannerImageItem {
-        final Uri uri;
-        final String name;
-        BannerImageItem(Uri uri, String name) { this.uri = uri; this.name = name; }
-    }
-
-    private void showBannerImagePicker() {
-        final ArrayList<BannerImageItem> images = new ArrayList<>();
-        android.database.Cursor cursor = null;
+        // Native Android file browser: folders, files and D-pad navigation.
+        Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        picker.addCategory(Intent.CATEGORY_OPENABLE);
+        picker.setType("image/*");
+        picker.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/jpeg", "image/png", "image/webp"});
+        picker.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         try {
-            String[] projection = {android.provider.MediaStore.Images.Media._ID,
-                android.provider.MediaStore.Images.Media.DISPLAY_NAME};
-            cursor = getContentResolver().query(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                projection, null, null, android.provider.MediaStore.Images.Media.DATE_ADDED + " DESC");
-            if (cursor != null) {
-                int idColumn = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media._ID);
-                int nameColumn = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media.DISPLAY_NAME);
-                while (cursor.moveToNext()) {
-                    long id = cursor.getLong(idColumn);
-                    String name = cursor.isNull(nameColumn) ? "Imagen" : cursor.getString(nameColumn);
-                    Uri uri = android.content.ContentUris.withAppendedId(
-                        android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
-                    images.add(new BannerImageItem(uri, name));
-                }
-            }
+            startActivityForResult(picker, REQUEST_APP_BANNER);
         } catch (Exception e) {
-            Toast.makeText(this, "No se pudieron cargar las imágenes", Toast.LENGTH_LONG).show();
             pendingBannerPackage = null;
-            return;
-        } finally { if (cursor != null) cursor.close(); }
-
-        if (images.isEmpty()) {
-            pendingBannerPackage = null;
-            Toast.makeText(this, "No se encontraron imágenes en el dispositivo", Toast.LENGTH_LONG).show();
-            return;
+            Toast.makeText(this, "No se pudo abrir el explorador de imágenes", Toast.LENGTH_LONG).show();
         }
-
-        final int cell = (int)(getResources().getDisplayMetrics().density * 150);
-        android.widget.GridView grid = new android.widget.GridView(this);
-        grid.setNumColumns(4);
-        grid.setColumnWidth(cell);
-        grid.setStretchMode(android.widget.GridView.STRETCH_COLUMN_WIDTH);
-        grid.setHorizontalSpacing(10);
-        grid.setVerticalSpacing(10);
-        grid.setPadding(18, 18, 18, 18);
-        grid.setSelector(android.R.drawable.list_selector_background);
-        grid.setFocusable(true);
-        grid.setFocusableInTouchMode(true);
-        grid.setAdapter(new android.widget.BaseAdapter() {
-            @Override public int getCount() { return images.size(); }
-            @Override public Object getItem(int position) { return images.get(position); }
-            @Override public long getItemId(int position) { return position; }
-            @Override public android.view.View getView(int position, android.view.View convertView, android.view.ViewGroup parent) {
-                android.widget.LinearLayout tile;
-                android.widget.ImageView image;
-                android.widget.TextView label;
-                if (convertView instanceof android.widget.LinearLayout) {
-                    tile = (android.widget.LinearLayout) convertView;
-                    image = (android.widget.ImageView) tile.getChildAt(0);
-                    label = (android.widget.TextView) tile.getChildAt(1);
-                } else {
-                    tile = new android.widget.LinearLayout(MainActivity.this);
-                    tile.setOrientation(android.widget.LinearLayout.VERTICAL);
-                    tile.setGravity(Gravity.CENTER);
-                    tile.setFocusable(false);
-                    tile.setFocusableInTouchMode(false);
-                    tile.setPadding(6, 6, 6, 6);
-                    image = new android.widget.ImageView(MainActivity.this);
-                    image.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-                    tile.addView(image, new android.widget.LinearLayout.LayoutParams(-1, cell - 38));
-                    label = new android.widget.TextView(MainActivity.this);
-                    label.setTextColor(Color.WHITE);
-                    label.setTextSize(11);
-                    label.setSingleLine(true);
-                    label.setGravity(Gravity.CENTER);
-                    tile.addView(label, new android.widget.LinearLayout.LayoutParams(-1, 30));
-                }
-                BannerImageItem item = images.get(position);
-                Bitmap thumbnail = null;
-                try {
-                    long id = android.content.ContentUris.parseId(item.uri);
-                    thumbnail = android.provider.MediaStore.Images.Thumbnails.getThumbnail(
-                        getContentResolver(), id, android.provider.MediaStore.Images.Thumbnails.MINI_KIND, null);
-                } catch (Exception ignored) { }
-                if (thumbnail != null) image.setImageBitmap(thumbnail);
-                else image.setImageResource(android.R.drawable.ic_menu_gallery);
-                label.setText(item.name);
-                return tile;
-            }
-        });
-
-        final AlertDialog dialog = new AlertDialog.Builder(this)
-            .setTitle("Elegir imagen de banner")
-            .setView(grid)
-            .setNegativeButton("Cancelar", (d, w) -> pendingBannerPackage = null)
-            .create();
-        installTvRemoteNavigation(dialog, grid);
-        grid.setOnItemClickListener((parent, view, position, id) -> {
-            BannerImageItem selected = images.get(position);
-            String target = pendingBannerPackage;
-            pendingBannerPackage = null;
-            dialog.dismiss();
-            if (target != null) saveAppBanner(selected.uri, target);
-        });
-        dialog.setOnCancelListener(d -> pendingBannerPackage = null);
-        dialog.show();
-        dialog.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels * 0.90f),
-            (int)(getResources().getDisplayMetrics().heightPixels * 0.82f));
-        grid.requestFocus();
-        grid.setSelection(0);
     }
 
     private void restoreAppBanner(String packageName) {
@@ -567,6 +440,18 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_APP_BANNER) {
+            String target = pendingBannerPackage;
+            pendingBannerPackage = null;
+            if (resultCode == RESULT_OK && data != null && data.getData() != null && target != null) {
+                Uri uri = data.getData();
+                try {
+                    getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } catch (Exception ignored) { }
+                saveAppBanner(uri, target);
+            }
+            return;
+        }
         if (requestCode == REQUEST_PROFILE_IMAGE && resultCode == RESULT_OK && data != null && data.getData() != null) {
             Uri uri = data.getData();
             try {
