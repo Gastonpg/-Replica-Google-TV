@@ -616,34 +616,51 @@ public class MainActivity extends Activity {
 
             // Installed applications are discovered from Android, not hard-coded.
             label("Tus apps", 80, 823, 24, 0xFFE2E8F0, true);
-            float appCardW = 196, gap = 22, appY = 852, appH = 110.25f;
+            float gap = 22, appY = 852;
             int visibleCount = 8;
-            int maxScroll = Math.max(0, installedApps.size() - visibleCount);
+            int maxScroll = Math.max(0, installedApps.size() - 1);
             appScroll = Math.max(0, Math.min(appScroll, maxScroll));
-            for (int i = appScroll; i < installedApps.size() && i < appScroll + visibleCount; i++) {
-                float x = 72 + (i - appScroll) * (appCardW + gap);
+            float cardX = 72;
+            for (int i = appScroll; i < installedApps.size(); i++) {
+                JSONObject cfg = appConfigs.get(installedApps.get(i).activityInfo.packageName);
+                float appCardW = cfg == null ? 196f : Math.max(100, Math.min(320, cfg.optInt("cardWidthDp", 196)));
+                float appH = cfg == null ? 110.25f : Math.max(60, Math.min(180, cfg.optInt("cardHeightDp", 110)));
+                if (i == appScroll) cardX = 72;
+                else {
+                    JSONObject prev = appConfigs.get(installedApps.get(i - 1).activityInfo.packageName);
+                    float prevW = prev == null ? 196f : Math.max(100, Math.min(320, prev.optInt("cardWidthDp", 196)));
+                    cardX += prevW + gap;
+                }
+                float x = cardX;
+                if (x > 1840 || x + appCardW > 1900) break;
                 boolean active = focused == 100 + i;
+                String style = cfg == null ? "glass" : cfg.optString("cardStyle", "glass");
+                float radius = cfg == null ? 16f : cfg.optInt("cardRadiusDp", 16);
                 Bitmap bannerBitmap = loadAppBanner(installedApps.get(i));
                 c.save();
                 Path appClip = new Path();
-                appClip.addRoundRect(x, appY, x + appCardW, appY + appH, 16, 16, Path.Direction.CW);
+                appClip.addRoundRect(x, appY, x + appCardW, appY + appH, radius, radius, Path.Direction.CW);
                 c.clipPath(appClip);
                 if (bannerBitmap != null && !bannerBitmap.isRecycled()) {
-                    // Prefer the app's own Android TV banner (android:banner), preserving its artwork.
                     drawCenterCrop(bannerBitmap, new RectF(x, appY, x + appCardW, appY + appH));
                     reset();
-                    p.setShader(new LinearGradient(x, appY + appH * 0.68f, x, appY + appH,
-                        new int[]{0x00000000, 0x22000000}, null, Shader.TileMode.CLAMP));
-                    c.drawRect(x, appY, x + appCardW, appY + appH, p);
+                    if ("solid".equals(style)) {
+                        p.setColor(0x66070B12);
+                        c.drawRect(x, appY, x + appCardW, appY + appH, p);
+                    } else {
+                        p.setShader(new LinearGradient(x, appY + appH * 0.68f, x, appY + appH,
+                            new int[]{0x00000000, 0x33000000}, null, Shader.TileMode.CLAMP));
+                        c.drawRect(x, appY, x + appCardW, appY + appH, p);
+                    }
                     reset();
                 } else {
-                    // Fallback for mobile/third-party apps without a TV banner: build a wide tile.
                     reset();
                     int tr = Color.red(themeColor), tg = Color.green(themeColor), tb = Color.blue(themeColor);
-                    int cardTop = themeColor == Color.BLACK ? 0xFF1A1A1A
-                        : Color.argb(181, Math.min(255,tr+28), Math.min(255,tg+28), Math.min(255,tb+32));
-                    int cardMiddle = themeColor == Color.BLACK ? 0xFF121212
-                        : Color.argb(213, tr/2, tg/2, tb/2);
+                    int cardTop = "solid".equals(style) ? 0xFF202A39
+                        : themeColor == Color.BLACK ? 0xFF1A1A1A
+                        : Color.argb("minimal".equals(style) ? 70 : 181, Math.min(255,tr+28), Math.min(255,tg+28), Math.min(255,tb+32));
+                    int cardMiddle = "solid".equals(style) ? 0xFF182333
+                        : themeColor == Color.BLACK ? 0xFF121212 : Color.argb(213, tr/2, tg/2, tb/2);
                     int cardBottom = themeColor == Color.BLACK ? 0xFF080808 : 0xE0080D16;
                     p.setShader(new LinearGradient(x, appY, x + appCardW, appY + appH,
                         new int[]{cardTop, cardMiddle, cardBottom}, null, Shader.TileMode.CLAMP));
@@ -651,25 +668,29 @@ public class MainActivity extends Activity {
                     reset();
                     Bitmap iconBitmap = null;
                     try { iconBitmap = appIconBitmaps.get(i); } catch (Exception ignored) { }
+                    float iconSize = Math.min(54f, Math.max(32f, appH * 0.52f));
+                    float iconLeft = x + 14;
+                    float iconTop = appY + (appH - iconSize) / 2f;
                     if (iconBitmap != null && !iconBitmap.isRecycled()) {
-                        c.drawBitmap(iconBitmap, null, new RectF(x + 15, appY + 27, x + 71, appY + 83), p);
+                        c.drawBitmap(iconBitmap, null, new RectF(iconLeft, iconTop, iconLeft + iconSize, iconTop + iconSize), p);
                     }
                     String appName = apps[i];
                     p.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-                    p.setTextSize(15);
-                    while (p.measureText(appName) > appCardW - 96 && appName.length() > 4)
+                    p.setTextSize(Math.min(17f, Math.max(12f, appH * 0.14f)));
+                    float textX = iconLeft + iconSize + 12;
+                    while (p.measureText(appName) > appCardW - (textX - x) - 10 && appName.length() > 4)
                         appName = appName.substring(0, appName.length() - 1);
                     p.setColor(0xFFF4F7FC);
-                    c.drawText(appName, x + 82, appY + 62, p);
+                    c.drawText(appName, textX, appY + appH * 0.58f, p);
                     reset();
                 }
                 c.restore();
                 p.setStyle(Paint.Style.STROKE);
-                p.setStrokeWidth(1.2f);
-                p.setColor(0x668DDCFF);
-                c.drawRoundRect(x, appY, x + appCardW, appY + appH, 16, 16, p);
+                p.setStrokeWidth("minimal".equals(style) ? 0.7f : 1.2f);
+                p.setColor("outline".equals(style) ? 0xFFE4F2FF : 0x668DDCFF);
+                c.drawRoundRect(x, appY, x + appCardW, appY + appH, radius, radius, p);
                 reset();
-                if (active) glass(x - 2, appY - 2, x + appCardW + 2, appY + appH + 2, 17, true);
+                if (active) glass(x - 2, appY - 2, x + appCardW + 2, appY + appH + 2, radius + 1, true);
             }
             if (installedApps.isEmpty()) {
                 label("No se encontraron aplicaciones iniciables", 82, 900, 20, 0xFFE1E7EF, false);
@@ -700,9 +721,18 @@ public class MainActivity extends Activity {
                         }
                     }
                 }
-                if (y >= 845 && y <= 980 && x >= 72) {
-                    int idx = appScroll + Math.max(0, Math.min(7, (int)((x-72)/(218))));
-                    if (idx < installedApps.size()) { focused=100+idx; launchApp(idx); return true; }
+                if (y >= 845 && y <= 1080 && x >= 72) {
+                    float cardX = 72;
+                    for (int idx = appScroll; idx < installedApps.size(); idx++) {
+                        JSONObject cfg = appConfigs.get(installedApps.get(idx).activityInfo.packageName);
+                        float w = cfg == null ? 196f : Math.max(100, Math.min(320, cfg.optInt("cardWidthDp", 196)));
+                        float h = cfg == null ? 110.25f : Math.max(60, Math.min(180, cfg.optInt("cardHeightDp", 110)));
+                        if (x >= cardX && x <= cardX + w && y >= 852 && y <= 852 + h) {
+                            focused = 100 + idx; launchApp(idx); return true;
+                        }
+                        cardX += w + 22;
+                        if (cardX > 1840) break;
+                    }
                 }
             }
             return true;
