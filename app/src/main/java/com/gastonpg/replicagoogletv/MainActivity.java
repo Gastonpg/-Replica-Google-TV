@@ -623,18 +623,18 @@ public class MainActivity extends Activity {
                 int visibleCount = 8;
                 int maxScroll = Math.max(0, installedApps.size() - 1);
                 appScroll = Math.max(0, Math.min(appScroll, maxScroll));
-                float cardX = 72;
+                float shelfX = 72;
                 for (int i = appScroll; i < installedApps.size(); i++) {
                     JSONObject cfg = appConfigs.get(installedApps.get(i).activityInfo.packageName);
                     float appCardW = cfg == null ? 196f : Math.max(100, Math.min(320, cfg.optInt("cardWidthDp", 196)));
                     float appH = cfg == null ? 110.25f : Math.max(60, Math.min(180, cfg.optInt("cardHeightDp", 110)));
-                    if (i == appScroll) cardX = 72;
+                    if (i == appScroll) shelfX = 72;
                     else {
                         JSONObject prev = appConfigs.get(installedApps.get(i - 1).activityInfo.packageName);
                         float prevW = prev == null ? 196f : Math.max(100, Math.min(320, prev.optInt("cardWidthDp", 196)));
-                        cardX += prevW + gap;
+                        shelfX += prevW + gap;
                     }
-                    float x = cardX;
+                    float x = shelfX;
                     if (x > 1840 || x + appCardW > 1900) break;
                     boolean active = focused == 100 + i;
                     String style = cfg == null ? "glass" : cfg.optString("cardStyle", "glass");
