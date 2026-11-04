@@ -31,7 +31,10 @@ public class MainActivity extends Activity {
     private TVHome home;
     private final BroadcastReceiver packageChangeReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
-            if (home != null) home.refreshInstalledApps();
+            if (home != null) {
+                if (intent != null && intent.getBooleanExtra("pg_banner_only", false)) home.refreshBannerConfig();
+                else home.refreshInstalledApps();
+            }
         }
     };
 
@@ -1183,6 +1186,18 @@ public class MainActivity extends Activity {
             if (term.isEmpty()) return;
             for (int i=0;i<apps.length;i++) if (apps[i].toLowerCase(Locale.ROOT).contains(term)) { focused=100+i; appScroll=Math.max(0, Math.min(i, Math.max(0, apps.length-8))); invalidate(); return; }
             Toast.makeText(a, "No se encontró la aplicación", Toast.LENGTH_SHORT).show();
+        }
+
+        private void refreshBannerConfig() {
+            appConfigs.clear();
+            android.content.SharedPreferences controlPrefs = a.getSharedPreferences("pg_launcher_app_config", MODE_PRIVATE);
+            for (Map.Entry<String, ?> entry : controlPrefs.getAll().entrySet()) {
+                try { appConfigs.put(entry.getKey(), new JSONObject(String.valueOf(entry.getValue()))); }
+                catch (Exception ignored) { }
+            }
+            appBannerCache.evictAll();
+            appsWithoutBanner.clear();
+            invalidate();
         }
 
         private void refreshInstalledApps() {
