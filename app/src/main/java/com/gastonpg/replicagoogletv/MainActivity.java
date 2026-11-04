@@ -134,12 +134,34 @@ public class MainActivity extends Activity {
             ip = String.format(Locale.US, "%d.%d.%d.%d", address & 255, (address >> 8) & 255,
                 (address >> 16) & 255, (address >> 24) & 255);
         } catch (Exception ignored) { }
-        String details = "Conectá el celular y el TV Box a la misma red Wi-Fi.\n\n"
+        if ("No disponible".equals(ip) || "0.0.0.0".equals(ip)) {
+            try {
+                java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
+                while (interfaces.hasMoreElements()) {
+                    java.util.Enumeration<java.net.InetAddress> addresses = interfaces.nextElement().getInetAddresses();
+                    while (addresses.hasMoreElements()) {
+                        java.net.InetAddress candidate = addresses.nextElement();
+                        if (!candidate.isLoopbackAddress() && candidate instanceof java.net.Inet4Address) {
+                            ip = candidate.getHostAddress();
+                            break;
+                        }
+                    }
+                    if (!"No disponible".equals(ip) && !"0.0.0.0".equals(ip)) break;
+                }
+            } catch (Exception ignored) { }
+        }
+        final String details = "Conectá el celular y el TV Box a la misma red Wi-Fi.\n\n"
             + "Dirección: http://" + ip + ":8765\n\n"
             + "Token: " + PgControlServer.token(this)
             + "\n\nIngresá estos datos en PG Control.";
         new AlertDialog.Builder(this).setTitle("Conectar PG Control")
-            .setMessage(details).setPositiveButton("Listo", null).show();
+            .setMessage(details)
+            .setNeutralButton("Copiar datos", (d,w) -> {
+                android.content.ClipboardManager clipboard = (android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("PG Control", "http://" + ip + ":8765\\n" + PgControlServer.token(this)));
+                Toast.makeText(this, "Datos copiados", Toast.LENGTH_SHORT).show();
+            })
+            .setPositiveButton("Listo", null).show();
     }
 
     private void showLauncherColors() {
