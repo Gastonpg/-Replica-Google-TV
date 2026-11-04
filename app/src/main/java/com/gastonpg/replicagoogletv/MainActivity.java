@@ -175,7 +175,6 @@ public class MainActivity extends Activity {
         grid.setSelector(android.R.drawable.list_selector_background);
         grid.setFocusable(true);
         grid.setFocusableInTouchMode(true);
-        grid.setItemsCanFocus(false);
         grid.setAdapter(new android.widget.BaseAdapter() {
             @Override public int getCount() { return images.size(); }
             @Override public Object getItem(int position) { return images.get(position); }
