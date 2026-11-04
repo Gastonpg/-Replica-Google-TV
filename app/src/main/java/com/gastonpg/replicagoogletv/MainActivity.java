@@ -68,15 +68,42 @@ public class MainActivity extends Activity {
     }
 
     private void showAppBannerMenu(String packageName, String appLabel) {
-        final String[] actions = {"Elegir imagen de banner", "Restaurar banner original"};
-        new AlertDialog.Builder(this)
+        android.widget.LinearLayout menu = new android.widget.LinearLayout(this);
+        menu.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int)(getResources().getDisplayMetrics().density * 18);
+        menu.setPadding(pad, pad, pad, pad);
+
+        android.widget.Button choose = new android.widget.Button(this);
+        choose.setText("Elegir imagen de banner");
+        choose.setFocusable(true);
+        choose.setFocusableInTouchMode(true);
+        menu.addView(choose, new android.widget.LinearLayout.LayoutParams(-1, (int)(56 * getResources().getDisplayMetrics().density)));
+
+        android.widget.Button restore = new android.widget.Button(this);
+        restore.setText("Restaurar banner original");
+        restore.setFocusable(true);
+        restore.setFocusableInTouchMode(true);
+        android.widget.LinearLayout.LayoutParams restoreParams = new android.widget.LinearLayout.LayoutParams(-1, (int)(56 * getResources().getDisplayMetrics().density));
+        restoreParams.topMargin = pad / 2;
+        menu.addView(restore, restoreParams);
+
+        final AlertDialog dialog = new AlertDialog.Builder(this)
             .setTitle("Banner · " + appLabel)
-            .setItems(actions, (dialog, which) -> {
-                if (which == 0) chooseAppBanner(packageName);
-                else restoreAppBanner(packageName);
-            })
+            .setView(menu)
             .setNegativeButton("Cancelar", null)
-            .show();
+            .create();
+        choose.setOnClickListener(v -> {
+            dialog.dismiss();
+            chooseAppBanner(packageName);
+        });
+        restore.setOnClickListener(v -> {
+            dialog.dismiss();
+            restoreAppBanner(packageName);
+        });
+        dialog.setOnShowListener(d -> choose.requestFocus());
+        dialog.show();
+        dialog.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels * 0.72f), -2);
+        choose.requestFocus();
     }
 
     private void chooseAppBanner(String packageName) {
@@ -148,6 +175,7 @@ public class MainActivity extends Activity {
         grid.setSelector(android.R.drawable.list_selector_background);
         grid.setFocusable(true);
         grid.setFocusableInTouchMode(true);
+        grid.setItemsCanFocus(false);
         grid.setAdapter(new android.widget.BaseAdapter() {
             @Override public int getCount() { return images.size(); }
             @Override public Object getItem(int position) { return images.get(position); }
@@ -164,8 +192,8 @@ public class MainActivity extends Activity {
                     tile = new android.widget.LinearLayout(MainActivity.this);
                     tile.setOrientation(android.widget.LinearLayout.VERTICAL);
                     tile.setGravity(Gravity.CENTER);
-                    tile.setFocusable(true);
-                    tile.setFocusableInTouchMode(true);
+                    tile.setFocusable(false);
+                    tile.setFocusableInTouchMode(false);
                     tile.setPadding(6, 6, 6, 6);
                     image = new android.widget.ImageView(MainActivity.this);
                     image.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
