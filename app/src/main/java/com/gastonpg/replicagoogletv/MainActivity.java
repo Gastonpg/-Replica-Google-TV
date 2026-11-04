@@ -28,6 +28,7 @@ import android.util.LruCache;
 public class MainActivity extends Activity {
     private static final int REQUEST_PROFILE_IMAGE = 731;
     private static final int REQUEST_APP_BANNER = 732;
+    private static final int REQUEST_BANNER_STORAGE = 733;
     private static final String PREFS = "pg_launcher_preferences";
     private static final String PROFILE_URI = "profile_image_uri";
     private TVHome home;
@@ -80,14 +81,134 @@ public class MainActivity extends Activity {
 
     private void chooseAppBanner(String packageName) {
         pendingBannerPackage = packageName;
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("image/*");
-        try { startActivityForResult(intent, REQUEST_APP_BANNER); }
-        catch (Exception e) {
-            pendingBannerPackage = null;
-            Toast.makeText(this, "No se pudo abrir el selector de imágenes", Toast.LENGTH_LONG).show();
+        if (android.os.Build.VERSION.SDK_INT >= 23 &&
+            checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.READ_EXTERNAL_STORAGE}, REQUEST_BANNER_STORAGE);
+            return;
         }
+        showBannerImagePicker();
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_BANNER_STORAGE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) showBannerImagePicker();
+            else {
+                pendingBannerPackage = null;
+                Toast.makeText(this, "Se necesita permiso para ver las imágenes del dispositivo", Toast.LENGTH_LONG).show();
+            }
+        }
+    }
+
+    private static class BannerImageItem {
+        final Uri uri;
+        final String name;
+        BannerImageItem(Uri uri, String name) { this.uri = uri; this.name = name; }
+    }
+
+    private void showBannerImagePicker() {
+        final ArrayList<BannerImageItem> images = new ArrayList<>();
+        android.database.Cursor cursor = null;
+        try {
+            String[] projection = {android.provider.MediaStore.Images.Media._ID,
+                android.provider.MediaStore.Images.Media.DISPLAY_NAME};
+            cursor = getContentResolver().query(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection, null, null, android.provider.MediaStore.Images.Media.DATE_ADDED + " DESC");
+            if (cursor != null) {
+                int idColumn = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media._ID);
+                int nameColumn = cursor.getColumnIndexOrThrow(android.provider.MediaStore.Images.Media.DISPLAY_NAME);
+                while (cursor.moveToNext()) {
+                    long id = cursor.getLong(idColumn);
+                    String name = cursor.isNull(nameColumn) ? "Imagen" : cursor.getString(nameColumn);
+                    Uri uri = android.content.ContentUris.withAppendedId(
+                        android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
+                    images.add(new BannerImageItem(uri, name));
+                }
+            }
+        } catch (Exception e) {
+            Toast.makeText(this, "No se pudieron cargar las imágenes", Toast.LENGTH_LONG).show();
+            pendingBannerPackage = null;
+            return;
+        } finally { if (cursor != null) cursor.close(); }
+
+        if (images.isEmpty()) {
+            pendingBannerPackage = null;
+            Toast.makeText(this, "No se encontraron imágenes en el dispositivo", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        final int cell = (int)(getResources().getDisplayMetrics().density * 150);
+        android.widget.GridView grid = new android.widget.GridView(this);
+        grid.setNumColumns(4);
+        grid.setColumnWidth(cell);
+        grid.setStretchMode(android.widget.GridView.STRETCH_COLUMN_WIDTH);
+        grid.setHorizontalSpacing(10);
+        grid.setVerticalSpacing(10);
+        grid.setPadding(18, 18, 18, 18);
+        grid.setSelector(android.R.drawable.list_selector_background);
+        grid.setFocusable(true);
+        grid.setFocusableInTouchMode(true);
+        grid.setAdapter(new android.widget.BaseAdapter() {
+            @Override public int getCount() { return images.size(); }
+            @Override public Object getItem(int position) { return images.get(position); }
+            @Override public long getItemId(int position) { return position; }
+            @Override public android.view.View getView(int position, android.view.View convertView, android.view.ViewGroup parent) {
+                android.widget.LinearLayout tile;
+                android.widget.ImageView image;
+                android.widget.TextView label;
+                if (convertView instanceof android.widget.LinearLayout) {
+                    tile = (android.widget.LinearLayout) convertView;
+                    image = (android.widget.ImageView) tile.getChildAt(0);
+                    label = (android.widget.TextView) tile.getChildAt(1);
+                } else {
+                    tile = new android.widget.LinearLayout(MainActivity.this);
+                    tile.setOrientation(android.widget.LinearLayout.VERTICAL);
+                    tile.setGravity(Gravity.CENTER);
+                    tile.setFocusable(true);
+                    tile.setFocusableInTouchMode(true);
+                    tile.setPadding(6, 6, 6, 6);
+                    image = new android.widget.ImageView(MainActivity.this);
+                    image.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+                    tile.addView(image, new android.widget.LinearLayout.LayoutParams(-1, cell - 38));
+                    label = new android.widget.TextView(MainActivity.this);
+                    label.setTextColor(Color.WHITE);
+                    label.setTextSize(11);
+                    label.setSingleLine(true);
+                    label.setGravity(Gravity.CENTER);
+                    tile.addView(label, new android.widget.LinearLayout.LayoutParams(-1, 30));
+                }
+                BannerImageItem item = images.get(position);
+                Bitmap thumbnail = null;
+                try {
+                    long id = android.content.ContentUris.parseId(item.uri);
+                    thumbnail = android.provider.MediaStore.Images.Thumbnails.getThumbnail(
+                        getContentResolver(), id, android.provider.MediaStore.Images.Thumbnails.MINI_KIND, null);
+                } catch (Exception ignored) { }
+                if (thumbnail != null) image.setImageBitmap(thumbnail);
+                else image.setImageResource(android.R.drawable.ic_menu_gallery);
+                label.setText(item.name);
+                return tile;
+            }
+        });
+
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+            .setTitle("Elegir imagen de banner")
+            .setView(grid)
+            .setNegativeButton("Cancelar", (d, w) -> pendingBannerPackage = null)
+            .create();
+        grid.setOnItemClickListener((parent, view, position, id) -> {
+            BannerImageItem selected = images.get(position);
+            String target = pendingBannerPackage;
+            pendingBannerPackage = null;
+            dialog.dismiss();
+            if (target != null) saveAppBanner(selected.uri, target);
+        });
+        dialog.setOnCancelListener(d -> pendingBannerPackage = null);
+        dialog.show();
+        dialog.getWindow().setLayout((int)(getResources().getDisplayMetrics().widthPixels * 0.90f),
+            (int)(getResources().getDisplayMetrics().heightPixels * 0.82f));
+        grid.requestFocus();
+        grid.setSelection(0);
     }
 
     private void restoreAppBanner(String packageName) {
@@ -295,12 +416,7 @@ public class MainActivity extends Activity {
             getSharedPreferences(PREFS, MODE_PRIVATE).edit().putString(PROFILE_URI, uri.toString()).apply();
             if (home != null) home.setProfileImage(uri);
         }
-        else if (requestCode == REQUEST_APP_BANNER) {
-            String targetPackage = pendingBannerPackage;
-            pendingBannerPackage = null;
-            if (resultCode == RESULT_OK && data != null && data.getData() != null && targetPackage != null)
-                saveAppBanner(data.getData(), targetPackage);
-        }
+
     }
 
     static class TVHome extends View {
