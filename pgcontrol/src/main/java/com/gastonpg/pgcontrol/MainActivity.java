@@ -25,7 +25,6 @@ public class MainActivity extends Activity {
     final ExecutorService io = Executors.newSingleThreadExecutor();
     final ExecutorService imageWorker = Executors.newSingleThreadExecutor();
     String pendingPackage = "", pendingIcon = "", pendingBanner = "";
-    android.app.ProgressDialog progressDialog;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -149,7 +148,7 @@ public class MainActivity extends Activity {
             final String targetPackage=pendingPackage;
             showProgress("Leyendo imagen original…");
             status.setText("PG Banner Studio: preparando imagen…");
-            io.execute(()->{
+            imageWorker.execute(()->{
                 Bitmap source=null,crop=null,banner=null;
                 try {
                     BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;
@@ -197,15 +196,10 @@ public class MainActivity extends Activity {
     }
 
     private void showProgress(String message){
-        runOnUiThread(()->{
-            dismissProgress();
-            progressDialog=new android.app.ProgressDialog(this);
-            progressDialog.setMessage(message);progressDialog.setIndeterminate(true);
-            progressDialog.setCancelable(false);progressDialog.show();
-        });
+        runOnUiThread(()->{if(bannerProgress!=null)bannerProgress.setVisibility(View.VISIBLE);status.setText(message);});
     }
     private void dismissProgress(){
-        runOnUiThread(()->{if(progressDialog!=null){try{progressDialog.dismiss();}catch(Exception ignored){}progressDialog=null;}});
+        runOnUiThread(()->{if(bannerProgress!=null)bannerProgress.setVisibility(View.GONE);});
     }
 
     interface Done{void accept(JSONObject o);}
