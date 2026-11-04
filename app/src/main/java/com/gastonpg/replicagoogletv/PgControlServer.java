@@ -176,6 +176,35 @@ public final class PgControlServer extends NanoHTTPD {
             if (!temp.renameTo(target)) { temp.delete(); return json(Response.Status.INTERNAL_ERROR, error("banner_storage_failed")); }
             cfg.put("hasCustomBanner", true);
         }
+        if (in.has("copyIconFromPackage")) {
+            String sourcePkg = in.optString("copyIconFromPackage", "").trim();
+            if (sourcePkg.isEmpty() || sourcePkg.length() > 200)
+                return json(Response.Status.BAD_REQUEST, error("invalid_icon_source"));
+            try {
+                android.graphics.drawable.Drawable drawable = app.getPackageManager().getApplicationIcon(sourcePkg);
+                Bitmap icon = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888);
+                android.graphics.Canvas canvas = new android.graphics.Canvas(icon);
+                drawable.setBounds(0, 0, 256, 256);
+                drawable.draw(canvas);
+                File dir = new File(app.getFilesDir(), "pg_control_icons");
+                if (!dir.exists() && !dir.mkdirs()) {
+                    icon.recycle();
+                    return json(Response.Status.INTERNAL_ERROR, error("icon_storage_failed"));
+                }
+                String safe = pkg.replaceAll("[^A-Za-z0-9_.]", "_");
+                File target = new File(dir, safe + ".png");
+                try (FileOutputStream out = new FileOutputStream(target)) {
+                    if (!icon.compress(Bitmap.CompressFormat.PNG, 100, out))
+                        return json(Response.Status.INTERNAL_ERROR, error("icon_write_failed"));
+                    out.getFD().sync();
+                } finally { icon.recycle(); }
+                cfg.put("hasCustomIcon", true);
+            } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+                return json(Response.Status.NOT_FOUND, error("icon_source_not_installed"));
+            } catch (Exception e) {
+                return json(Response.Status.INTERNAL_ERROR, error("icon_copy_failed"));
+            }
+        }
         if (in.has("iconBase64")) {
             String encoded = in.optString("iconBase64", "");
             if (encoded.length() > 1400000) return json(Response.Status.BAD_REQUEST, error("icon_too_large"));
@@ -197,7 +226,7 @@ public final class PgControlServer extends NanoHTTPD {
         boolean bannerOnly = (in.has("bannerBase64") || in.optBoolean("removeCustomBanner", false))
             && !in.has("label") && !in.has("hidden") && !in.has("order") && !in.has("category")
             && !in.has("cardWidthDp") && !in.has("cardHeightDp") && !in.has("cardStyle")
-            && !in.has("cardRadiusDp") && !in.has("iconBase64") && !in.optBoolean("restoreOriginalIcon", false);
+            && !in.has("cardRadiusDp") && !in.has("iconBase64") && !in.has("copyIconFromPackage") && !in.optBoolean("restoreOriginalIcon", false);
         app.sendBroadcast(new Intent("com.gastonpg.replicagoogletv.PG_CONTROL_CONFIG_CHANGED")
             .setPackage(app.getPackageName()).putExtra("pg_banner_only", bannerOnly));
         JSONObject out = new JSONObject(); out.put("ok", true); out.put("packageName", pkg); out.put("config", cfg);
