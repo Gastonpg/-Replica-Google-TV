@@ -401,6 +401,7 @@ public class MainActivity extends Activity {
         private float sx, sy;
         // Focus index 0-4: Seguir viendo; 5-13: apps.
         private int focused = 0;
+        private boolean appBannerMenuOpenedByLongPress = false;
         private long lastHomePressTime = 0L;
         private int selectedCategory = 0;
         private int appScroll = 0;
@@ -1046,7 +1047,11 @@ public class MainActivity extends Activity {
                 invalidate(); return true;
             }
             if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER) {
-                if (focused >= 100) launchApp(focused - 100);
+                if (focused >= 100) {
+                    appBannerMenuOpenedByLongPress = false;
+                    event.startTracking();
+                    return true;
+                }
                 else if (focused >= 30 && focused <= 34) {
                     int index = focused - 30;
                     if (index < featuredTitles.size()) Toast.makeText(a, featuredTitles.get(index), Toast.LENGTH_SHORT).show();
@@ -1069,6 +1074,7 @@ public class MainActivity extends Activity {
                 if (info != null && info.activityInfo != null) {
                     String packageName = info.activityInfo.packageName;
                     String appLabel = String.valueOf(info.loadLabel(a.getPackageManager()));
+                    appBannerMenuOpenedByLongPress = true;
                     ((MainActivity)a).showAppBannerMenu(packageName, appLabel);
                     return true;
                 }
@@ -1078,6 +1084,11 @@ public class MainActivity extends Activity {
 
         @Override public boolean onKeyUp(int key, KeyEvent event) {
             if (key == KeyEvent.KEYCODE_HOME) return true;
+            if (key == KeyEvent.KEYCODE_DPAD_CENTER || key == KeyEvent.KEYCODE_ENTER) {
+                if (focused >= 100 && !appBannerMenuOpenedByLongPress) launchApp(focused - 100);
+                appBannerMenuOpenedByLongPress = false;
+                return true;
+            }
             return super.onKeyUp(key, event);
         }
 
