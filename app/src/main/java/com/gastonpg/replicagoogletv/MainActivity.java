@@ -1197,6 +1197,28 @@ public class MainActivity extends Activity {
             }
             appBannerCache.evictAll();
             appsWithoutBanner.clear();
+            final ArrayList<ResolveInfo> snapshot = new ArrayList<>(installedApps);
+            final HashMap<String, Boolean> customPackages = new HashMap<>();
+            for (ResolveInfo info : snapshot) {
+                if (info == null || info.activityInfo == null) continue;
+                JSONObject cfg = appConfigs.get(info.activityInfo.packageName);
+                if (cfg != null && cfg.optBoolean("hasCustomBanner", false))
+                    customPackages.put(info.activityInfo.packageName, true);
+            }
+            // Decode custom banners away from the UI/particle animation thread.
+            new Thread(() -> {
+                File dir = new File(a.getFilesDir(), "pg_control_banners");
+                for (ResolveInfo info : snapshot) {
+                    if (info == null || info.activityInfo == null
+                        || !customPackages.containsKey(info.activityInfo.packageName)) continue;
+                    String pkg = info.activityInfo.packageName;
+                    String key = pkg + "/" + info.activityInfo.name;
+                    File file = new File(dir, pkg.replaceAll("[^A-Za-z0-9_.]", "_") + ".png");
+                    Bitmap bitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
+                    if (bitmap != null) appBannerCache.put(key, bitmap);
+                }
+                a.runOnUiThread(this::invalidate);
+            }, "PG-Banner-Decode").start();
             invalidate();
         }
 
