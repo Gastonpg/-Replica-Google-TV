@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.util.Base64;
 import android.view.View;
@@ -19,8 +20,10 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
     EditText address, token;
     TextView status;
+    ProgressBar bannerProgress;
     LinearLayout appList;
     final ExecutorService io = Executors.newSingleThreadExecutor();
+    final ExecutorService imageWorker = Executors.newSingleThreadExecutor();
     String pendingPackage = "", pendingIcon = "", pendingBanner = "";
 
     @Override public void onCreate(Bundle state) {
@@ -32,6 +35,7 @@ public class MainActivity extends Activity {
         token = new EditText(this); token.setSingleLine(); token.setInputType(129); token.setText(getPreferences(0).getString("token","")); token.setHint("Token del TV Box"); page.addView(token);
         Button connect = button("Conectar con Google TV PG"); page.addView(connect); connect.setOnClickListener(v->connect());
         status = text("El celular y el TV Box deben estar en la misma Wi-Fi.",13,false); page.addView(status);
+        bannerProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); bannerProgress.setIndeterminate(true); bannerProgress.setVisibility(View.GONE); page.addView(bannerProgress);
         page.addView(text("Distribución de aplicaciones",16,true));
         LinearLayout layouts = new LinearLayout(this);
         String[] names={"Fila","Cuadrícula","Categorías ↔","Categorías ▦"};
@@ -108,10 +112,10 @@ public class MainActivity extends Activity {
         TextView bannerTitle=text("PG BANNER STUDIO · BANNERS LEANBACK",14,true);card.addView(bannerTitle);
         TextView bannerHelp=text("Importá una imagen de Gemini. Se recorta al centro y se convierte a PNG 320 × 180, sin pedirle a Gemini una resolución específica.",11,false);card.addView(bannerHelp);
         Button chooseBanner=button("Importar y convertir imagen para banner");card.addView(chooseBanner);
-        chooseBanner.setOnClickListener(v->{pendingPackage=pkg;Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("image/*");startActivityForResult(i,45);});
+        chooseBanner.setOnClickListener(v->{pendingPackage=pkg;pendingBanner="";status.setText("Elegí una imagen para "+defaultLabel+".");Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("image/*");startActivityForResult(i,45);});
         Button applyBanner=button("Aplicar banner Leanback");card.addView(applyBanner);
         applyBanner.setOnClickListener(v->{if(!pkg.equals(pendingPackage)||pendingBanner.isEmpty()){status.setText("Primero importá una imagen en PG Banner Studio para esta aplicación.");return;}
-            try{JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("bannerBase64",pendingBanner);request("POST","/v1/launcher/app-config",o,r->{status.setText("Banner Leanback aplicado a "+defaultLabel);pendingBanner="";});}catch(Exception e){status.setText("Error preparando el banner.");}});
+            try{JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("bannerBase64",pendingBanner);bannerProgress.setVisibility(View.VISIBLE);status.setText("Enviando banner al TV Box y guardando archivo…");request("POST","/v1/launcher/app-config",o,r->{bannerProgress.setVisibility(View.GONE);status.setText("Banner aplicado a "+defaultLabel+". El launcher ya puede mostrarlo.");pendingBanner="";});}catch(Exception e){bannerProgress.setVisibility(View.GONE);status.setText("Error preparando el banner: "+e.getMessage());}});
         Button copyBannerDeclaration=button("Copiar declaración Android TV");card.addView(copyBannerDeclaration);
         copyBannerDeclaration.setOnClickListener(v->{
             String declaration = "<application\n    android:banner=\"@drawable/tv_banner\">\n    <!-- Para una actividad concreta también podés usar: -->\n    <activity\n        android:name=\".MainActivity\"\n        android:banner=\"@drawable/tv_banner\" />\n</application>";
@@ -140,20 +144,42 @@ public class MainActivity extends Activity {
         super.onActivityResult(request,result,data);
         if(result!=RESULT_OK||data==null||data.getData()==null)return;
         if(request==45){
-            try(InputStream in=getContentResolver().openInputStream(data.getData())){
-                Bitmap source=BitmapFactory.decodeStream(in);if(source==null)throw new Exception("invalid image");
-                int sw=source.getWidth(),sh=source.getHeight();float target=16f/9f;
-                int cw=sw,ch=sh;
-                if(sw/(float)sh>target)cw=Math.max(1,Math.round(sh*target));
-                else ch=Math.max(1,Math.round(sw/target));
-                int left=(sw-cw)/2,top=(sh-ch)/2;
-                Bitmap crop=Bitmap.createBitmap(source,left,top,cw,ch);
-                Bitmap banner=Bitmap.createScaledBitmap(crop,320,180,true);
-                ByteArrayOutputStream out=new ByteArrayOutputStream();banner.compress(Bitmap.CompressFormat.PNG,100,out);
-                pendingBanner=Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP);
-                if(banner!=crop)banner.recycle();if(crop!=source)crop.recycle();source.recycle();
-                status.setText("PG Banner Studio: imagen convertida a 320 × 180. Tocá Aplicar banner Leanback.");
-            }catch(Exception e){status.setText("No se pudo convertir la imagen para banner.");}
+            final Uri selectedUri=data.getData();
+            bannerProgress.setVisibility(View.VISIBLE);
+            status.setText("Convirtiendo imagen… no cierres PG Control.");
+            imageWorker.execute(()->{
+                Bitmap source=null,crop=null,banner=null;
+                try {
+                    BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;
+                    try(InputStream boundsIn=getContentResolver().openInputStream(selectedUri)){BitmapFactory.decodeStream(boundsIn,null,bounds);}
+                    if(bounds.outWidth<=0||bounds.outHeight<=0)throw new Exception("No se pudieron leer las dimensiones de la imagen");
+                    int sample=1;
+                    while(Math.max(bounds.outWidth/sample,bounds.outHeight/sample)>2048)sample*=2;
+                    BitmapFactory.Options decode=new BitmapFactory.Options();decode.inSampleSize=sample;decode.inPreferredConfig=Bitmap.Config.ARGB_8888;
+                    try(InputStream imageIn=getContentResolver().openInputStream(selectedUri)){source=BitmapFactory.decodeStream(imageIn,null,decode);}
+                    if(source==null)throw new Exception("Formato de imagen no compatible");
+                    int sw=source.getWidth(),sh=source.getHeight();float target=16f/9f;
+                    int cw=sw,ch=sh;
+                    if(sw/(float)sh>target)cw=Math.max(1,Math.round(sh*target));
+                    else ch=Math.max(1,Math.round(sw/target));
+                    crop=Bitmap.createBitmap(source,(sw-cw)/2,(sh-ch)/2,cw,ch);
+                    banner=Bitmap.createScaledBitmap(crop,320,180,true);
+                    ByteArrayOutputStream out=new ByteArrayOutputStream();banner.compress(Bitmap.CompressFormat.PNG,100,out);
+                    String encoded=Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP);
+                    final int originalWidth=bounds.outWidth,originalHeight=bounds.outHeight;
+                    runOnUiThread(()->{
+                        pendingBanner=encoded;bannerProgress.setVisibility(View.GONE);
+                        status.setText("Imagen lista: "+originalWidth+" × "+originalHeight+" → PNG 320 × 180. Ahora tocá «Aplicar banner Leanback».");
+                    });
+                } catch(Exception e) {
+                    String message=e.getMessage()==null?"error desconocido":e.getMessage();
+                    runOnUiThread(()->{bannerProgress.setVisibility(View.GONE);pendingBanner="";status.setText("No se pudo convertir la imagen: "+message);});
+                } finally {
+                    if(banner!=null&&!banner.isRecycled())banner.recycle();
+                    if(crop!=null&&crop!=source&&!crop.isRecycled())crop.recycle();
+                    if(source!=null&&!source.isRecycled())source.recycle();
+                }
+            });
             return;
         }
         if(request!=44)return;
@@ -177,13 +203,13 @@ public class MainActivity extends Activity {
             int code=c.getResponseCode();InputStream in=code<400?c.getInputStream():c.getErrorStream();ByteArrayOutputStream out=new ByteArrayOutputStream();
             byte[] buf=new byte[4096];int n;while((n=in.read(buf))>0)out.write(buf,0,n);
             JSONObject response=new JSONObject(new String(out.toByteArray(),StandardCharsets.UTF_8));
-            runOnUiThread(()->{if(code>=200&&code<300)done.accept(response);else status.setText("Error "+code+": "+response.optString("error"));});
-        }catch(Exception e){runOnUiThread(()->status.setText("Sin conexión: "+e.getMessage()));}finally{if(c!=null)c.disconnect();}});
+            runOnUiThread(()->{if(code>=200&&code<300)done.accept(response);else {bannerProgress.setVisibility(View.GONE);status.setText("Error "+code+": "+response.optString("error"));}});
+        }catch(Exception e){runOnUiThread(()->{bannerProgress.setVisibility(View.GONE);status.setText("Sin conexión: "+e.getMessage());});}finally{if(c!=null)c.disconnect();}});
     }
 
     EditText field(String hint,String value){EditText e=new EditText(this);e.setSingleLine();e.setHint(hint);e.setText(value);return e;}
     EditText number(String hint,int value){EditText e=field(hint,String.valueOf(value));e.setInputType(2);return e;}
     TextView text(String s,int size,boolean bold){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(Color.WHITE);if(bold)t.setTypeface(null,1);return t;}
     Button button(String s){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setTextColor(Color.WHITE);b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff315b91));return b;}
-    @Override protected void onDestroy(){super.onDestroy();io.shutdownNow();}
+    @Override protected void onDestroy(){super.onDestroy();io.shutdownNow();imageWorker.shutdownNow();}
 }
