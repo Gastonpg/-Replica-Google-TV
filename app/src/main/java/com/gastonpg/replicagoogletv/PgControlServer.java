@@ -138,6 +138,14 @@ public final class PgControlServer extends NanoHTTPD {
             if (v != 0 && v != 8 && v != 16 && v != 28) return json(Response.Status.BAD_REQUEST, error("invalid_card_radius"));
             cfg.put("cardRadiusDp", v);
         }
+        if (in.optBoolean("restoreOriginalIcon", false)) {
+            File dir = new File(app.getFilesDir(), "pg_control_icons");
+            String safe = pkg.replaceAll("[^A-Za-z0-9_.]", "_");
+            File custom = new File(dir, safe + ".png");
+            if (custom.exists() && !custom.delete())
+                return json(Response.Status.INTERNAL_ERROR, error("icon_restore_failed"));
+            cfg.remove("hasCustomIcon");
+        }
         if (in.has("iconBase64")) {
             String encoded = in.optString("iconBase64", "");
             if (encoded.length() > 1400000) return json(Response.Status.BAD_REQUEST, error("icon_too_large"));
