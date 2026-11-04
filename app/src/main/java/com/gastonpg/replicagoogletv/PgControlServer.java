@@ -189,7 +189,12 @@ public final class PgControlServer extends NanoHTTPD {
             cfg.put("hasCustomIcon", true);
         }
         prefs.edit().putString(pkg, cfg.toString()).apply();
-        app.sendBroadcast(new Intent("com.gastonpg.replicagoogletv.PG_CONTROL_CONFIG_CHANGED").setPackage(app.getPackageName()));
+        boolean bannerOnly = (in.has("bannerBase64") || in.optBoolean("removeCustomBanner", false))
+            && !in.has("label") && !in.has("hidden") && !in.has("order") && !in.has("category")
+            && !in.has("cardWidthDp") && !in.has("cardHeightDp") && !in.has("cardStyle")
+            && !in.has("cardRadiusDp") && !in.has("iconBase64") && !in.optBoolean("restoreOriginalIcon", false);
+        app.sendBroadcast(new Intent("com.gastonpg.replicagoogletv.PG_CONTROL_CONFIG_CHANGED")
+            .setPackage(app.getPackageName()).putExtra("pg_banner_only", bannerOnly));
         JSONObject out = new JSONObject(); out.put("ok", true); out.put("packageName", pkg); out.put("config", cfg);
         return json(Response.Status.OK, out);
     }
