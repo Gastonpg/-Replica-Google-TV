@@ -150,15 +150,16 @@ public class MainActivity extends Activity {
                 }
             } catch (Exception ignored) { }
         }
+        final String hostIp = ip;
         final String details = "Conectá el celular y el TV Box a la misma red Wi-Fi.\n\n"
-            + "Dirección: http://" + ip + ":8765\n\n"
+            + "Dirección: http://" + hostIp + ":8765\n\n"
             + "Token: " + PgControlServer.token(this)
             + "\n\nIngresá estos datos en PG Control.";
         new AlertDialog.Builder(this).setTitle("Conectar PG Control")
             .setMessage(details)
             .setNeutralButton("Copiar datos", (d,w) -> {
                 android.content.ClipboardManager clipboard = (android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
-                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("PG Control", "http://" + ip + ":8765\\n" + PgControlServer.token(this)));
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("PG Control", "http://" + hostIp + ":8765\\n" + PgControlServer.token(this)));
                 Toast.makeText(this, "Datos copiados", Toast.LENGTH_SHORT).show();
             })
             .setPositiveButton("Listo", null).show();
