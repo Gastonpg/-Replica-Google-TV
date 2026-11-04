@@ -134,10 +134,10 @@ public class MainActivity extends Activity {
             ip = String.format(Locale.US, "%d.%d.%d.%d", address & 255, (address >> 8) & 255,
                 (address >> 16) & 255, (address >> 24) & 255);
         } catch (Exception ignored) { }
-        String details = "Conectá el celular y el TV Box a la misma red Wi-Fi.\\n\\n"
-            + "Dirección: http://" + ip + ":8765\\n\\n"
+        String details = "Conectá el celular y el TV Box a la misma red Wi-Fi.\n\n"
+            + "Dirección: http://" + ip + ":8765\n\n"
             + "Token: " + PgControlServer.token(this)
-            + "\\n\\nIngresá estos datos en PG Control.";
+            + "\n\nIngresá estos datos en PG Control.";
         new AlertDialog.Builder(this).setTitle("Conectar PG Control")
             .setMessage(details).setPositiveButton("Listo", null).show();
     }
