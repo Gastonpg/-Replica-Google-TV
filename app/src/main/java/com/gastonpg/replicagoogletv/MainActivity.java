@@ -840,13 +840,19 @@ public class MainActivity extends Activity {
             if (key == KeyEvent.KEYCODE_MENU || key == KeyEvent.KEYCODE_APP_SWITCH) { RecentAppsDialog.show(a); return true; }
             if (key == KeyEvent.KEYCODE_DPAD_LEFT) {
                 if (focused >= 100) {
-                    int idx = focused - 100;
-                    if (idx > 0) {
-                        focused--;
-                        String layout = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("apps_layout", "horizontal");
-                        if ("grid".equals(layout)) appScroll = ((focused - 100) / 8) * 8;
-                        else if ("horizontal".equals(layout) && idx - 1 < appScroll) appScroll = Math.max(0, idx - 1);
-                    } else focused = 3;
+                    String layout = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("apps_layout", "horizontal");
+                    if ("category_rows".equals(layout) || "category_grid".equals(layout)) {
+                        ArrayList<Integer> visible = visibleAppIndices();
+                        int pos = visible.indexOf(focused - 100);
+                        if (pos > 0) focused = 100 + visible.get(pos - 1);
+                    } else {
+                        int idx = focused - 100;
+                        if (idx > 0) {
+                            focused--;
+                            if ("grid".equals(layout)) appScroll = ((focused - 100) / 8) * 8;
+                            else if (idx - 1 < appScroll) appScroll = Math.max(0, idx - 1);
+                        } else focused = 3;
+                    }
                 } else if (focused >= 30 && focused <= 34) focused = focused == 30 ? 34 : focused - 1;
                 else if (focused == 20) focused = 24;
                 else if (focused == 24) focused = 4;
@@ -859,12 +865,18 @@ public class MainActivity extends Activity {
             }
             if (key == KeyEvent.KEYCODE_DPAD_RIGHT) {
                 if (focused >= 100) {
-                    int idx = focused - 100;
-                    if (idx < installedApps.size() - 1) {
-                        focused++;
-                        String layout = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("apps_layout", "horizontal");
-                        if ("grid".equals(layout)) appScroll = ((focused - 100) / 8) * 8;
-                        else if ("horizontal".equals(layout) && idx + 1 >= appScroll + 8) appScroll++;
+                    String layout = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("apps_layout", "horizontal");
+                    if ("category_rows".equals(layout) || "category_grid".equals(layout)) {
+                        ArrayList<Integer> visible = visibleAppIndices();
+                        int pos = visible.indexOf(focused - 100);
+                        if (pos >= 0 && pos < visible.size() - 1) focused = 100 + visible.get(pos + 1);
+                    } else {
+                        int idx = focused - 100;
+                        if (idx < installedApps.size() - 1) {
+                            focused++;
+                            if ("grid".equals(layout)) appScroll = ((focused - 100) / 8) * 8;
+                            else if (idx + 1 >= appScroll + 8) appScroll++;
+                        }
                     }
                 } else if (focused >= 30 && focused <= 34) focused = focused == 34 ? 30 : focused + 1;
                 else if (focused == 20) focused = 22;
@@ -1229,6 +1241,26 @@ public class MainActivity extends Activity {
                 if (custom != null && !custom.isRecycled()) custom.recycle();
             }
             invalidate();
+        }
+
+        private ArrayList<Integer> visibleAppIndices() {
+            ArrayList<Integer> result = new ArrayList<>();
+            String layout = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("apps_layout", "horizontal");
+            if ("grid".equals(layout)) {
+                int start = (appScroll / 8) * 8;
+                for (int i = start; i < installedApps.size() && i < start + 8; i++) result.add(i);
+            } else if ("category_rows".equals(layout) || "category_grid".equals(layout)) {
+                ArrayList<String> cats = availableAppCategories();
+                int rows = "category_rows".equals(layout) ? 2 : 1;
+                for (int r = 0; r < rows && categoryScroll + r < cats.size(); r++) {
+                    ArrayList<Integer> ids = appsInCategory(cats.get(categoryScroll + r));
+                    int limit = "category_rows".equals(layout) ? 6 : 8;
+                    for (int j = 0; j < ids.size() && j < limit; j++) result.add(ids.get(j));
+                }
+            } else {
+                for (int i = appScroll; i < installedApps.size() && i < appScroll + 8; i++) result.add(i);
+            }
+            return result;
         }
 
         private String appCategory(int index) {
