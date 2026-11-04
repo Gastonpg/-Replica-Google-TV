@@ -25,6 +25,7 @@ public class MainActivity extends Activity {
     final ExecutorService io = Executors.newSingleThreadExecutor();
     final ExecutorService imageWorker = Executors.newSingleThreadExecutor();
     String pendingPackage = "", pendingIcon = "", pendingBanner = "";
+    android.app.ProgressDialog progressDialog;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -143,39 +144,41 @@ public class MainActivity extends Activity {
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
         if(result!=RESULT_OK||data==null||data.getData()==null)return;
+        final android.net.Uri selected=data.getData();
         if(request==45){
-            final Uri selectedUri=data.getData();
-            bannerProgress.setVisibility(View.VISIBLE);
-            status.setText("Convirtiendo imagen… no cierres PG Control.");
-            imageWorker.execute(()->{
+            final String targetPackage=pendingPackage;
+            showProgress("Leyendo imagen original…");
+            status.setText("PG Banner Studio: preparando imagen…");
+            io.execute(()->{
                 Bitmap source=null,crop=null,banner=null;
                 try {
                     BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;
-                    try(InputStream boundsIn=getContentResolver().openInputStream(selectedUri)){BitmapFactory.decodeStream(boundsIn,null,bounds);}
-                    if(bounds.outWidth<=0||bounds.outHeight<=0)throw new Exception("No se pudieron leer las dimensiones de la imagen");
+                    try(InputStream probe=getContentResolver().openInputStream(selected)){BitmapFactory.decodeStream(probe,null,bounds);}
+                    if(bounds.outWidth<=0||bounds.outHeight<=0)throw new Exception("Formato de imagen no compatible");
                     int sample=1;
                     while(Math.max(bounds.outWidth/sample,bounds.outHeight/sample)>2048)sample*=2;
-                    BitmapFactory.Options decode=new BitmapFactory.Options();decode.inSampleSize=sample;decode.inPreferredConfig=Bitmap.Config.ARGB_8888;
-                    try(InputStream imageIn=getContentResolver().openInputStream(selectedUri)){source=BitmapFactory.decodeStream(imageIn,null,decode);}
-                    if(source==null)throw new Exception("Formato de imagen no compatible");
+                    BitmapFactory.Options opts=new BitmapFactory.Options();opts.inSampleSize=sample;opts.inPreferredConfig=Bitmap.Config.ARGB_8888;
+                    runOnUiThread(()->status.setText("PG Banner Studio: decodificando imagen…"));
+                    try(InputStream input=getContentResolver().openInputStream(selected)){source=BitmapFactory.decodeStream(input,null,opts);}
+                    if(source==null)throw new Exception("No se pudo decodificar la imagen");
                     int sw=source.getWidth(),sh=source.getHeight();float target=16f/9f;
                     int cw=sw,ch=sh;
                     if(sw/(float)sh>target)cw=Math.max(1,Math.round(sh*target));
                     else ch=Math.max(1,Math.round(sw/target));
                     crop=Bitmap.createBitmap(source,(sw-cw)/2,(sh-ch)/2,cw,ch);
                     banner=Bitmap.createScaledBitmap(crop,320,180,true);
-                    ByteArrayOutputStream out=new ByteArrayOutputStream();banner.compress(Bitmap.CompressFormat.PNG,100,out);
-                    String encoded=Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP);
-                    final int originalWidth=bounds.outWidth,originalHeight=bounds.outHeight;
+                    ByteArrayOutputStream output=new ByteArrayOutputStream();
+                    if(!banner.compress(Bitmap.CompressFormat.PNG,100,output))throw new Exception("No se pudo generar el PNG");
+                    String encoded=Base64.encodeToString(output.toByteArray(),Base64.NO_WRAP);
                     runOnUiThread(()->{
-                        pendingBanner=encoded;bannerProgress.setVisibility(View.GONE);
-                        status.setText("Imagen lista: "+originalWidth+" × "+originalHeight+" → PNG 320 × 180. Ahora tocá «Aplicar banner Leanback».");
+                        pendingPackage=targetPackage;pendingBanner=encoded;dismissProgress();
+                        status.setText("Imagen convertida correctamente · PNG 320 × 180 · "+(encoded.length()/1024)+" KB. Ahora tocá Aplicar banner Leanback.");
                     });
-                } catch(Exception e) {
-                    String message=e.getMessage()==null?"error desconocido":e.getMessage();
-                    runOnUiThread(()->{bannerProgress.setVisibility(View.GONE);pendingBanner="";status.setText("No se pudo convertir la imagen: "+message);});
-                } finally {
-                    if(banner!=null&&!banner.isRecycled())banner.recycle();
+                }catch(Exception e){
+                    String message=e.getMessage()==null?"Error de conversión":e.getMessage();
+                    runOnUiThread(()->{dismissProgress();status.setText("PG Banner Studio: "+message);});
+                }finally{
+                    if(banner!=null&&banner!=crop&&!banner.isRecycled())banner.recycle();
                     if(crop!=null&&crop!=source&&!crop.isRecycled())crop.recycle();
                     if(source!=null&&!source.isRecycled())source.recycle();
                 }
@@ -183,7 +186,7 @@ public class MainActivity extends Activity {
             return;
         }
         if(request!=44)return;
-        try(InputStream in=getContentResolver().openInputStream(data.getData())){
+        try(InputStream in=getContentResolver().openInputStream(selected)){
             Bitmap bmp=BitmapFactory.decodeStream(in);if(bmp==null)throw new Exception("invalid image");
             float scale=Math.min(1f,256f/Math.max(bmp.getWidth(),bmp.getHeight()));
             Bitmap small=Bitmap.createScaledBitmap(bmp,Math.max(1,(int)(bmp.getWidth()*scale)),Math.max(1,(int)(bmp.getHeight()*scale)),true);
@@ -191,6 +194,18 @@ public class MainActivity extends Activity {
             pendingIcon=Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP);if(small!=bmp)small.recycle();bmp.recycle();
             status.setText("Icono seleccionado para "+pendingPackage+". Tocá Aplicar solo el icono o Guardar cambios.");
         }catch(Exception e){status.setText("No se pudo abrir esa imagen.");}
+    }
+
+    private void showProgress(String message){
+        runOnUiThread(()->{
+            dismissProgress();
+            progressDialog=new android.app.ProgressDialog(this);
+            progressDialog.setMessage(message);progressDialog.setIndeterminate(true);
+            progressDialog.setCancelable(false);progressDialog.show();
+        });
+    }
+    private void dismissProgress(){
+        runOnUiThread(()->{if(progressDialog!=null){try{progressDialog.dismiss();}catch(Exception ignored){}progressDialog=null;}});
     }
 
     interface Done{void accept(JSONObject o);}
