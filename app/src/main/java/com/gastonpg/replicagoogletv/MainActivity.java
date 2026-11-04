@@ -761,17 +761,43 @@ public class MainActivity extends Activity {
                     }
                 }
                 if (y >= 845 && y <= 1080 && x >= 72) {
-                    float cardX = 72;
-                    for (int idx = appScroll; idx < installedApps.size(); idx++) {
-                        JSONObject cfg = appConfigs.get(installedApps.get(idx).activityInfo.packageName);
-                        float w = cfg == null ? 196f : Math.max(100, Math.min(320, cfg.optInt("cardWidthDp", 196)));
-                        float h = cfg == null ? 110.25f : Math.max(60, Math.min(180, cfg.optInt("cardHeightDp", 110)));
-                        if (x >= cardX && x <= cardX + w && y >= 852 && y <= 852 + h) {
-                            focused = 100 + idx; launchApp(idx); return true;
+                    String layout = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("apps_layout", "horizontal");
+                    int hit = -1;
+                    if ("grid".equals(layout)) {
+                        int pageStart = (appScroll / 8) * 8;
+                        int col = Math.max(0, Math.min(3, (int)((x - 72) / 455)));
+                        int row = y >= 950 ? 1 : 0;
+                        int slot = row * 4 + col;
+                        int candidate = pageStart + slot;
+                        if (candidate < installedApps.size() && x <= 72 + col * 455 + 420 && y <= 850 + row * 105 + 88) hit = candidate;
+                    } else if ("category_rows".equals(layout)) {
+                        ArrayList<String> cats = availableAppCategories();
+                        for (int row = 0; row < 2 && categoryScroll + row < cats.size(); row++) {
+                            if (y < 855 + row * 108 || y > 855 + row * 108 + 78) continue;
+                            ArrayList<Integer> indices = appsInCategory(cats.get(categoryScroll + row));
+                            int slot = (int)((x - 285) / 260);
+                            if (slot >= 0 && slot < indices.size() && slot < 6 && x <= 285 + slot * 260 + 244) hit = indices.get(slot);
                         }
-                        cardX += w + 22;
-                        if (cardX > 1840) break;
+                    } else if ("category_grid".equals(layout)) {
+                        ArrayList<String> cats = availableAppCategories();
+                        if (categoryScroll < cats.size()) {
+                            ArrayList<Integer> indices = appsInCategory(cats.get(categoryScroll));
+                            int col = Math.max(0, Math.min(3, (int)((x - 72) / 455)));
+                            int row = y >= 958 ? 1 : 0;
+                            int slot = row * 4 + col;
+                            if (slot < indices.size() && x <= 72 + col * 455 + 420 && y <= 858 + row * 100 + 84) hit = indices.get(slot);
+                        }
+                    } else {
+                        float cardX = 72;
+                        for (int idx = appScroll; idx < installedApps.size(); idx++) {
+                            JSONObject cfg = appConfigs.get(installedApps.get(idx).activityInfo.packageName);
+                            float w = cfg == null ? 196f : Math.max(100, Math.min(320, cfg.optInt("cardWidthDp", 196)));
+                            float h = cfg == null ? 110.25f : Math.max(60, Math.min(180, cfg.optInt("cardHeightDp", 110)));
+                            if (x >= cardX && x <= cardX + w && y >= 852 && y <= 852 + h) { hit = idx; break; }
+                            cardX += w + 22; if (cardX > 1840) break;
+                        }
                     }
+                    if (hit >= 0) { focused = 100 + hit; launchApp(hit); return true; }
                 }
             }
             return true;
@@ -819,6 +845,16 @@ public class MainActivity extends Activity {
                 invalidate(); return true;
             }
             if (key == KeyEvent.KEYCODE_DPAD_DOWN) {
+                if (focused >= 100) {
+                    String layout = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("apps_layout", "horizontal");
+                    if ("category_rows".equals(layout) || "category_grid".equals(layout)) {
+                        ArrayList<String> cats = availableAppCategories();
+                        int max = Math.max(0, cats.size() - ("category_rows".equals(layout) ? 2 : 1));
+                        categoryScroll = Math.min(max, categoryScroll + 1);
+                        if (!cats.isEmpty()) { ArrayList<Integer> ids = appsInCategory(cats.get(categoryScroll)); if (!ids.isEmpty()) focused = 100 + ids.get(0); }
+                        invalidate(); return true;
+                    }
+                }
                 if (focused >= 30 && focused <= 34) focused = installedApps.isEmpty() ? 20 : 100 + Math.min(appScroll, installedApps.size()-1);
                 else if (focused >= 100) return true;
                 else if (focused >= 0 && focused < 5) focused = 30 + focused;
@@ -826,7 +862,16 @@ public class MainActivity extends Activity {
                 invalidate(); return true;
             }
             if (key == KeyEvent.KEYCODE_DPAD_UP) {
-                if (focused >= 100) focused = 30;
+                if (focused >= 100) {
+                    String layout = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("apps_layout", "horizontal");
+                    if ("category_rows".equals(layout) || "category_grid".equals(layout)) {
+                        categoryScroll = Math.max(0, categoryScroll - 1);
+                        ArrayList<String> cats = availableAppCategories();
+                        if (!cats.isEmpty()) { ArrayList<Integer> ids = appsInCategory(cats.get(categoryScroll)); if (!ids.isEmpty()) focused = 100 + ids.get(0); }
+                        invalidate(); return true;
+                    }
+                    focused = 30;
+                }
                 else if (focused >= 30 && focused <= 34) focused = selectedCategory;
                 else if (focused == 0) focused = 21;
                 else if (focused == 21) focused = 23;
