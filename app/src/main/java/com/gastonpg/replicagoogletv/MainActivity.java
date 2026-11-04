@@ -1363,11 +1363,19 @@ public class MainActivity extends Activity {
 
         private Bitmap loadAppBanner(ResolveInfo info) {
             if (info == null || info.activityInfo == null) return null;
-            JSONObject cfg = appConfigs.get(info.activityInfo.packageName);
-            if (cfg != null && cfg.optBoolean("hasCustomIcon", false)) return null;
-            String key = info.activityInfo.packageName + "/" + info.activityInfo.name;
+            String packageName = info.activityInfo.packageName;
+            JSONObject cfg = appConfigs.get(packageName);
+            String key = packageName + "/" + info.activityInfo.name;
             Bitmap cached = appBannerCache.get(key);
             if (cached != null) return cached;
+            if (cfg != null && cfg.optBoolean("hasCustomBanner", false)) {
+                try {
+                    File dir = new File(a.getFilesDir(), "pg_control_banners");
+                    File custom = new File(dir, packageName.replaceAll("[^A-Za-z0-9_.]", "_") + ".png");
+                    Bitmap decoded = BitmapFactory.decodeFile(custom.getAbsolutePath());
+                    if (decoded != null) { appBannerCache.put(key, decoded); return decoded; }
+                } catch (Exception ignored) { }
+            }
             if (appsWithoutBanner.contains(key)) return null;
 
             PackageManager pm = a.getPackageManager();
