@@ -1,7 +1,7 @@
 name: Build Réplica Google TV
 on:
   push:
-    branches: [ "main", "prueba-diseno-gemini", "funcionalidad-tvlauncher-pg" ]
+    branches: [ "main", "prueba-diseno-gemini", "funcionalidad-tvlauncher-pg", "leanback-multitarea-pg", "pg-control-agent" ]
   workflow_dispatch:
 permissions:
   contents: read
@@ -31,8 +31,10 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Replica-Google-TV-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Replica-Google-TV-PG-Control
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            pgcontrol/build/outputs/apk/debug/pgcontrol-debug.apk
           if-no-files-found: error
 
 # Rebuild after PG logo resource was added.
