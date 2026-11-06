@@ -19,6 +19,7 @@ import java.net.URL;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.*;
+import java.text.SimpleDateFormat;
 import android.app.AlertDialog;
 import android.widget.EditText;
 import android.widget.Button;
@@ -44,6 +45,8 @@ public class MainActivity extends Activity {
             if (home != null) {
                 if (intent != null && intent.getBooleanExtra("pg_banner_only", false)) home.refreshBannerConfig();
                 else home.refreshInstalledApps();
+                home.refreshWidgetConfig();
+                home.refreshCardScale();
             }
         }
     };
@@ -569,6 +572,8 @@ public class MainActivity extends Activity {
         private int categoryAppScroll = 0;
         private final ArrayList<ResolveInfo> installedApps = new ArrayList<>();
         private final HashMap<String, JSONObject> appConfigs = new HashMap<>();
+        private JSONArray launcherWidgets = new JSONArray();
+        private float cardScale = 1.0f;
         private final HashSet<String> excludedPackages = new HashSet<>(Arrays.asList(
             "com.gastonpg.replicagoogletv",
             "com.tvlaunch.pg"
@@ -590,6 +595,8 @@ public class MainActivity extends Activity {
             String saved = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString(PROFILE_URI, null);
             if (saved != null) setProfileImage(Uri.parse(saved));
             refreshInstalledApps();
+            refreshWidgetConfig();
+            refreshCardScale();
             android.content.SharedPreferences catalogPrefs = a.getSharedPreferences(PREFS, MODE_PRIVATE);
             String tmdbKey = catalogPrefs.getString("tmdb_api_key", "").trim();
             String youtubeKey = catalogPrefs.getString("youtube_api_key", "").trim();
@@ -904,19 +911,19 @@ public class MainActivity extends Activity {
             label("Tus apps", 80, 823, 24, 0xFFE2E8F0, true);
             String appLayout = a.getSharedPreferences(PREFS, MODE_PRIVATE).getString("apps_layout", "horizontal");
             if ("horizontal".equals(appLayout)) {
-                float gap = 22, appY = 852;
+                float gap = 22f * cardScale, appY = 852;
                 int visibleCount = 8;
                 int maxScroll = Math.max(0, installedApps.size() - 1);
                 appScroll = Math.max(0, Math.min(appScroll, maxScroll));
                 float shelfX = 72;
                 for (int i = appScroll; i < installedApps.size(); i++) {
                     JSONObject cfg = appConfigs.get(installedApps.get(i).activityInfo.packageName);
-                    float appCardW = cfg == null ? 196f : Math.max(100, Math.min(320, cfg.optInt("cardWidthDp", 196)));
-                    float appH = cfg == null ? 110.25f : Math.max(60, Math.min(180, cfg.optInt("cardHeightDp", 110)));
+                    float appCardW = (cfg == null ? 196f : Math.max(100, Math.min(320, cfg.optInt("cardWidthDp", 196)))) * cardScale;
+                    float appH = (cfg == null ? 110.25f : Math.max(60, Math.min(180, cfg.optInt("cardHeightDp", 110)))) * cardScale;
                     if (i == appScroll) shelfX = 72;
                     else {
                         JSONObject prev = appConfigs.get(installedApps.get(i - 1).activityInfo.packageName);
-                        float prevW = prev == null ? 196f : Math.max(100, Math.min(320, prev.optInt("cardWidthDp", 196)));
+                        float prevW = (prev == null ? 196f : Math.max(100, Math.min(320, prev.optInt("cardWidthDp", 196)))) * cardScale;
                         shelfX += prevW + gap;
                     }
                     float x = shelfX;
@@ -1018,9 +1025,67 @@ public class MainActivity extends Activity {
                     }
                 }
             }
+
+        private void drawLauncherWidgets() {
+            for (int i = 0; i < launcherWidgets.length(); i++) {
+                JSONObject item = launcherWidgets.optJSONObject(i);
+                if (item == null) continue;
+                String type = item.optString("type", "clock");
+                String style = item.optString("style", "glass");
+                float x = item.optInt("x", 1400), y = item.optInt("y", 140);
+                float w = item.optInt("w", 320), h = item.optInt("h", 140);
+                float radius = Math.min(30f, Math.min(w, h) * 0.16f);
+                if ("solid".equals(style)) {
+                    rect(x, y, x + w, y + h, radius, 0xE91A2638);
+                } else if ("cinematic".equals(style)) {
+                    reset();
+                    p.setShader(new LinearGradient(x, y, x + w, y + h,
+                        new int[]{0xD934526F, 0xD90D1728, 0xE6070B13}, null, Shader.TileMode.CLAMP));
+                    c.drawRoundRect(x, y, x + w, y + h, radius, radius, p);
+                    reset();
+                    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(1.5f); p.setColor(0x668ECFFF);
+                    c.drawRoundRect(x, y, x + w, y + h, radius, radius, p); reset();
+                } else if ("outline".equals(style)) {
+                    rect(x, y, x + w, y + h, radius, 0x33131C2C);
+                    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(2f); p.setColor(0xCCB7DFFF);
+                    c.drawRoundRect(x, y, x + w, y + h, radius, radius, p); reset();
+                } else {
+                    glass(x, y, x + w, y + h, radius, false);
+                }
+
+                String primary = "", secondary = "";
+                if ("clock".equals(type)) {
+                    primary = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date());
+                } else if ("date".equals(type)) {
+                    primary = new SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(new Date());
+                } else if ("clock_date".equals(type)) {
+                    primary = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date());
+                    secondary = new SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(new Date());
+                } else if ("device".equals(type)) {
+                    primary = "PG TV BOX";
+                    secondary = android.os.Build.MODEL + " · Android " + android.os.Build.VERSION.RELEASE;
+                } else if ("wifi".equals(type)) {
+                    primary = "RED LOCAL";
+                    secondary = "PG CONTROL · CONECTADO";
+                } else if ("greeting".equals(type)) {
+                    primary = "Bienvenido a PG";
+                    secondary = new SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(new Date());
+                }
+                float primarySize = Math.min(h * (secondary.isEmpty() ? 0.48f : 0.34f), w * 0.24f);
+                primarySize = Math.max(18f, Math.min(92f, primarySize));
+                centerLabel(primary, x + w / 2f, y + h * (secondary.isEmpty() ? 0.61f : 0.48f),
+                    primarySize, 0xFFF7FAFF, true);
+                if (!secondary.isEmpty()) {
+                    float secondarySize = Math.max(13f, Math.min(27f, Math.min(h * 0.17f, w * 0.075f)));
+                    centerLabel(secondary, x + w / 2f, y + h * 0.76f, secondarySize, 0xFFCAD8E9, false);
+                }
+            }
+        }
+
             if (installedApps.isEmpty()) {
                 label("No se encontraron aplicaciones iniciables", 82, 900, 20, 0xFFE1E7EF, false);
             }
+            drawLauncherWidgets();
             c.restore();
         }
 
@@ -1080,10 +1145,10 @@ public class MainActivity extends Activity {
                         float cardX = 72;
                         for (int idx = appScroll; idx < installedApps.size(); idx++) {
                             JSONObject cfg = appConfigs.get(installedApps.get(idx).activityInfo.packageName);
-                            float w = cfg == null ? 196f : Math.max(100, Math.min(320, cfg.optInt("cardWidthDp", 196)));
-                            float h = cfg == null ? 110.25f : Math.max(60, Math.min(180, cfg.optInt("cardHeightDp", 110)));
+                            float w = (cfg == null ? 196f : Math.max(100, Math.min(320, cfg.optInt("cardWidthDp", 196)))) * cardScale;
+                            float h = (cfg == null ? 110.25f : Math.max(60, Math.min(180, cfg.optInt("cardHeightDp", 110)))) * cardScale;
                             if (x >= cardX && x <= cardX + w && y >= 852 && y <= 852 + h) { hit = idx; break; }
-                            cardX += w + 22; if (cardX > 1840) break;
+                            cardX += w + 22f * cardScale; if (cardX > 1840) break;
                         }
                     }
                     if (hit >= 0) { focused = 100 + hit; launchApp(hit); return true; }
@@ -1497,6 +1562,20 @@ public class MainActivity extends Activity {
                 }
                 a.runOnUiThread(this::invalidate);
             }, "PG-Banner-Decode").start();
+            invalidate();
+        }
+
+        void refreshWidgetConfig() {
+            try {
+                String raw = a.getSharedPreferences("pg_launcher_widgets", MODE_PRIVATE).getString("widgets", "[]");
+                launcherWidgets = new JSONArray(raw);
+            } catch (Exception ignored) { launcherWidgets = new JSONArray(); }
+            invalidate();
+        }
+
+        void refreshCardScale() {
+            cardScale = a.getSharedPreferences(PREFS, MODE_PRIVATE).getFloat("apps_card_scale", 1.0f);
+            cardScale = Math.max(0.75f, Math.min(1.50f, cardScale));
             invalidate();
         }
 
