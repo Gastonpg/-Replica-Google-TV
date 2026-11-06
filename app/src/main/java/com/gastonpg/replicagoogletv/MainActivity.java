@@ -1069,7 +1069,7 @@ public class MainActivity extends Activity {
                 if ("clock".equals(type)) {
                     primary = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date());
                 } else if ("date".equals(type)) {
-                    primary = new SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(new Date());
+                    primary = new SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(new Date());
                 } else if ("clock_date".equals(type)) {
                     primary = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date());
                     secondary = new SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(new Date());
@@ -1078,7 +1078,7 @@ public class MainActivity extends Activity {
                     secondary = android.os.Build.MODEL + " · Android " + android.os.Build.VERSION.RELEASE;
                 } else if ("wifi".equals(type)) {
                     primary = "RED LOCAL";
-                    secondary = "PG CONTROL · CONECTADO";
+                    secondary = "TV BOX · RED LOCAL";
                 } else if ("greeting".equals(type)) {
                     primary = "Bienvenido a PG";
                     secondary = new SimpleDateFormat("EEEE d MMMM", Locale.getDefault()).format(new Date());
