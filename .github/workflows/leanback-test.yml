@@ -2,7 +2,7 @@ name: Build PG Leanback test APK
 
 on:
   push:
-    branches: [ "prueba-leanback-tarjetas", "leanback-multitarea-pg", "pg-launcher-banner-editor" ]
+    branches: [ "prueba-leanback-tarjetas", "leanback-multitarea-pg", "pg-launcher-banner-editor", "pg-control-widgets" ]
   workflow_dispatch:
 
 permissions:
@@ -34,6 +34,6 @@ jobs:
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: PG-Leanback-Test
-          path: app/build/outputs/apk/leanbackTest/*.apk
+          name: PG-Control-Widgets-Test
+          path: |\n            app/build/outputs/apk/leanbackTest/*.apk\n            pgcontrol/build/outputs/apk/debug/*.apk
           if-no-files-found: error
