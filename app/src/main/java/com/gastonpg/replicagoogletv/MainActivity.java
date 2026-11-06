@@ -1031,6 +1031,13 @@ public class MainActivity extends Activity {
                 }
             }
 
+            if (installedApps.isEmpty()) {
+                label("No se encontraron aplicaciones iniciables", 82, 900, 20, 0xFFE1E7EF, false);
+            }
+            drawLauncherWidgets();
+            c.restore();
+        }
+
         private void drawLauncherWidgets() {
             for (int i = 0; i < launcherWidgets.length(); i++) {
                 JSONObject item = launcherWidgets.optJSONObject(i);
@@ -1085,13 +1092,6 @@ public class MainActivity extends Activity {
                     centerLabel(secondary, x + w / 2f, y + h * 0.76f, secondarySize, 0xFFCAD8E9, false);
                 }
             }
-        }
-
-            if (installedApps.isEmpty()) {
-                label("No se encontraron aplicaciones iniciables", 82, 900, 20, 0xFFE1E7EF, false);
-            }
-            drawLauncherWidgets();
-            c.restore();
         }
 
         @Override public boolean onTouchEvent(android.view.MotionEvent event) {
