@@ -24,7 +24,7 @@ La conexión requiere que el celular y el TV Box estén en la misma red local. E
 
 ## Compilación
 El workflow **Build PG Leanback test APK** genera:
-- APK de prueba de PG Launcher con sufijo de paquete `.bannereditor`, para instalarlo en paralelo con el launcher estable.
+- APK de prueba de PG Launcher con sufijo de paquete `.widgets`, para instalarlo en paralelo con el launcher estable.
 - APK de PG Control para el celular.
 
 La instalación y el funcionamiento en el TV Box real siguen requiriendo prueba física.
