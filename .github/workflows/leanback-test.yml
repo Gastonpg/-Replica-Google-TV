@@ -1,4 +1,4 @@
-name: Build PG Leanback test APK
+name: Build PG Control Widgets Test
 
 on:
   push:
@@ -29,11 +29,13 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
-      - name: Build isolated Leanback test APK
-        run: gradle assembleLeanbackTest --no-daemon
-      - name: Upload test APK
+      - name: Build PG Launcher and PG Control
+        run: gradle assembleLeanbackTest assembleDebug --no-daemon
+      - name: Upload APKs
         uses: actions/upload-artifact@v4
         with:
           name: PG-Control-Widgets-Test
-          path: |\n            app/build/outputs/apk/leanbackTest/*.apk\n            pgcontrol/build/outputs/apk/debug/*.apk
+          path: |
+            app/build/outputs/apk/leanbackTest/*.apk
+            pgcontrol/build/outputs/apk/debug/*.apk
           if-no-files-found: error
