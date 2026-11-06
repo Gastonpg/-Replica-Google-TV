@@ -43,10 +43,15 @@ public class MainActivity extends Activity {
     private final BroadcastReceiver packageChangeReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (home != null) {
-                if (intent != null && intent.getBooleanExtra("pg_banner_only", false)) home.refreshBannerConfig();
-                else home.refreshInstalledApps();
-                home.refreshWidgetConfig();
-                home.refreshCardScale();
+                if (intent != null && intent.getBooleanExtra("pg_banner_only", false)) {
+                    home.refreshBannerConfig();
+                } else if (intent != null && (intent.getBooleanExtra("pg_widgets_changed", false)
+                    || intent.getBooleanExtra("pg_card_scale_changed", false))) {
+                    home.refreshWidgetConfig();
+                    home.refreshCardScale();
+                } else {
+                    home.refreshInstalledApps();
+                }
             }
         }
     };
