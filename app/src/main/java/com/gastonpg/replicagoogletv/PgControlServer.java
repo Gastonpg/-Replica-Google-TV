@@ -57,6 +57,8 @@ public final class PgControlServer extends NanoHTTPD {
                 if ("/v1/device".equals(path)) return device();
                 if ("/v1/packages".equals(path)) return packages();
                 if ("/v1/launcher/app-configs".equals(path)) return configs();
+                if ("/v1/launcher/widgets".equals(path)) return widgets();
+                if ("/v1/launcher/card-scale".equals(path)) return cardScale();
                 if ("/v1/launcher/layout".equals(path)) {
                     JSONObject o = new JSONObject();
                     o.put("layout", app.getSharedPreferences("pg_launcher_preferences", Context.MODE_PRIVATE).getString("apps_layout", "horizontal"));
@@ -64,6 +66,8 @@ public final class PgControlServer extends NanoHTTPD {
                 }
             }
             if ("POST".equals(session.getMethod().name()) && "/v1/launcher/app-config".equals(path)) return updateApp(session);
+            if ("POST".equals(session.getMethod().name()) && "/v1/launcher/widgets".equals(path)) return updateWidgets(session);
+            if ("POST".equals(session.getMethod().name()) && "/v1/launcher/card-scale".equals(path)) return updateCardScale(session);
             if ("POST".equals(session.getMethod().name()) && "/v1/launcher/layout".equals(path)) return updateLayout(session);
             return json(Response.Status.NOT_FOUND, error("not_found"));
         } catch (Exception e) { return json(Response.Status.BAD_REQUEST, error("bad_request")); }
@@ -230,6 +234,83 @@ public final class PgControlServer extends NanoHTTPD {
         app.sendBroadcast(new Intent("com.gastonpg.replicagoogletv.PG_CONTROL_CONFIG_CHANGED")
             .setPackage(app.getPackageName()).putExtra("pg_banner_only", bannerOnly));
         JSONObject out = new JSONObject(); out.put("ok", true); out.put("packageName", pkg); out.put("config", cfg);
+        return json(Response.Status.OK, out);
+    }
+
+
+    private Response widgets() throws Exception {
+        android.content.SharedPreferences p = app.getSharedPreferences("pg_launcher_widgets", Context.MODE_PRIVATE);
+        JSONArray items = new JSONArray(p.getString("widgets", "[]"));
+        JSONObject out = new JSONObject();
+        out.put("widgets", items);
+        return json(Response.Status.OK, out);
+    }
+
+    private Response updateWidgets(IHTTPSession s) throws Exception {
+        Map<String,String> body = new HashMap<>();
+        s.parseBody(body);
+        String raw = body.get("postData");
+        if (raw == null) return json(Response.Status.BAD_REQUEST, error("missing_body"));
+        JSONObject in = new JSONObject(raw);
+        JSONArray source = in.optJSONArray("widgets");
+        if (source == null || source.length() > 12)
+            return json(Response.Status.BAD_REQUEST, error("invalid_widget_list"));
+        JSONArray clean = new JSONArray();
+        java.util.HashSet<String> ids = new java.util.HashSet<>();
+        for (int i = 0; i < source.length(); i++) {
+            JSONObject item = source.optJSONObject(i);
+            if (item == null) return json(Response.Status.BAD_REQUEST, error("invalid_widget"));
+            String id = item.optString("id", "").trim();
+            String type = item.optString("type", "").trim();
+            String style = item.optString("style", "glass").trim();
+            if (id.isEmpty() || id.length() > 40 || !ids.add(id))
+                return json(Response.Status.BAD_REQUEST, error("invalid_widget_id"));
+            if (!type.matches("clock|date|clock_date|device|wifi|greeting"))
+                return json(Response.Status.BAD_REQUEST, error("invalid_widget_type"));
+            if (!style.matches("glass|cinematic|solid|outline"))
+                return json(Response.Status.BAD_REQUEST, error("invalid_widget_style"));
+            int w = clamp(item.optInt("w", 320), 140, 900);
+            int h = clamp(item.optInt("h", 140), 70, 360);
+            int x = clamp(item.optInt("x", 1400), 0, 1920 - w);
+            int y = clamp(item.optInt("y", 140), 0, 1080 - h);
+            JSONObject saved = new JSONObject();
+            saved.put("id", id); saved.put("type", type); saved.put("style", style);
+            saved.put("x", x); saved.put("y", y); saved.put("w", w); saved.put("h", h);
+            clean.put(saved);
+        }
+        app.getSharedPreferences("pg_launcher_widgets", Context.MODE_PRIVATE)
+            .edit().putString("widgets", clean.toString()).apply();
+        app.sendBroadcast(new Intent("com.gastonpg.replicagoogletv.PG_CONTROL_CONFIG_CHANGED")
+            .setPackage(app.getPackageName()).putExtra("pg_widgets_changed", true));
+        JSONObject out = new JSONObject();
+        out.put("ok", true); out.put("count", clean.length()); out.put("widgets", clean);
+        return json(Response.Status.OK, out);
+    }
+
+    private Response cardScale() throws Exception {
+        float scale = app.getSharedPreferences("pg_launcher_preferences", Context.MODE_PRIVATE)
+            .getFloat("apps_card_scale", 1.0f);
+        JSONObject out = new JSONObject();
+        out.put("scale", scale);
+        return json(Response.Status.OK, out);
+    }
+
+    private Response updateCardScale(IHTTPSession s) throws Exception {
+        Map<String,String> body = new HashMap<>();
+        s.parseBody(body);
+        String raw = body.get("postData");
+        if (raw == null) return json(Response.Status.BAD_REQUEST, error("missing_body"));
+        JSONObject in = new JSONObject(raw);
+        double requested = in.optDouble("scale", 1.0);
+        if (Double.isNaN(requested) || Double.isInfinite(requested) || requested < 0.75 || requested > 1.50)
+            return json(Response.Status.BAD_REQUEST, error("invalid_card_scale"));
+        float scale = (float) requested;
+        app.getSharedPreferences("pg_launcher_preferences", Context.MODE_PRIVATE)
+            .edit().putFloat("apps_card_scale", scale).apply();
+        app.sendBroadcast(new Intent("com.gastonpg.replicagoogletv.PG_CONTROL_CONFIG_CHANGED")
+            .setPackage(app.getPackageName()).putExtra("pg_card_scale_changed", true));
+        JSONObject out = new JSONObject();
+        out.put("ok", true); out.put("scale", scale);
         return json(Response.Status.OK, out);
     }
 
