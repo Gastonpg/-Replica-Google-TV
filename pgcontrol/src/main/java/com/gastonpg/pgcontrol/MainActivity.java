@@ -1,253 +1,508 @@
 package com.gastonpg.pgcontrol;
 
 import android.app.Activity;
-import android.content.Intent;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.Color;
-import android.net.Uri;
 import android.os.Bundle;
-import android.util.Base64;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.RectF;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.*;
-import org.json.*;
-import java.io.*;
-import java.net.*;
+import android.content.Context;
+import android.content.DialogInterface;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
-    EditText address, token;
-    TextView status;
-    ProgressBar bannerProgress;
-    LinearLayout appList;
-    final ExecutorService io = Executors.newSingleThreadExecutor();
-    final ExecutorService imageWorker = Executors.newSingleThreadExecutor();
-    String pendingPackage = "", pendingIcon = "", pendingBanner = "";
-    JSONArray installedApps = new JSONArray();
+    private EditText address, token;
+    private TextView status, scaleLabel, selectedLabel;
+    private ProgressBar progress;
+    private SeekBar scaleSeek, widthSeek, heightSeek;
+    private Spinner styleSpinner;
+    private WidgetPreview preview;
+    private JSONArray widgets = new JSONArray();
+    private int selectedIndex = -1;
+    private final ExecutorService io = Executors.newSingleThreadExecutor();
+    private boolean loadingControls = false;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        LinearLayout root = new LinearLayout(this); root.setOrientation(1); root.setPadding(18,18,18,18); root.setBackgroundColor(0xff0b1120);
-        ScrollView scroll = new ScrollView(this); LinearLayout page = new LinearLayout(this); page.setOrientation(1);
-        TextView title = text("PG CONTROL",25,true); page.addView(title);
-        address = new EditText(this); address.setSingleLine(); address.setText(getPreferences(0).getString("address","")); address.setHint("http://192.168.x.x:8765"); page.addView(address);
-        token = new EditText(this); token.setSingleLine(); token.setInputType(129); token.setText(getPreferences(0).getString("token","")); token.setHint("Token del TV Box"); page.addView(token);
-        Button connect = button("Conectar con Google TV PG"); page.addView(connect); connect.setOnClickListener(v->connect());
-        status = text("El celular y el TV Box deben estar en la misma Wi-Fi.",13,false); page.addView(status);
-        bannerProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); bannerProgress.setIndeterminate(true); bannerProgress.setVisibility(View.GONE); page.addView(bannerProgress);
-        page.addView(text("Distribución de aplicaciones",16,true));
-        LinearLayout layouts = new LinearLayout(this);
-        String[] names={"Fila","Cuadrícula","Categorías ↔","Categorías ▦"};
-        String[] values={"horizontal","grid","category_rows","category_grid"};
-        for(int i=0;i<names.length;i++){final String value=values[i];Button b=button(names[i]);b.setTextSize(10);layouts.addView(b,new LinearLayout.LayoutParams(0,-2,1));b.setOnClickListener(v->applyLayout(value));}
-        page.addView(layouts);
-        appList = new LinearLayout(this); appList.setOrientation(1); page.addView(appList);
-        scroll.addView(page); root.addView(scroll); setContentView(root);
+        buildInterface();
     }
 
-    void connect() {
-        String a=address.getText().toString().trim().replaceAll("/+$","");
-        String t=token.getText().toString().trim();
-        getPreferences(0).edit().putString("address",a).putString("token",t).apply();
-        status.setText("Conectando…");
-        request("GET","/v1/device",null,r->{status.setText("Conectado a "+r.optString("launcher","Google TV PG")+" · "+r.optString("model"));loadApps();});
-    }
+    private void buildInterface() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(0xff080e19);
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setPadding(dp(18), dp(18), dp(18), dp(28));
 
-    void applyLayout(String layout) {
-        try { JSONObject o=new JSONObject();o.put("layout",layout);
-            request("POST","/v1/launcher/layout",o,r->status.setText("Distribución guardada: "+layout));
-        } catch(Exception e){status.setText("No se pudo preparar el cambio.");}
-    }
+        TextView title = text("PG CONTROL", 27, true);
+        page.addView(title);
+        page.addView(text("Personalizá tu Google TV desde el celular", 13, false));
 
-    void loadApps() {
-        request("GET","/v1/launcher/app-configs",null,cfg->
-            request("GET","/v1/packages",null,data->{
-                appList.removeAllViews(); JSONArray apps=data.optJSONArray("apps"); JSONObject all=cfg.optJSONObject("configs");
-                if(apps==null)return;
-                installedApps = apps;
-                for(int i=0;i<apps.length();i++){
-                    JSONObject item=apps.optJSONObject(i);if(item==null)continue;
-                    String pkg=item.optString("packageName");
-                    addEditor(pkg,item.optString("label",pkg),all==null?null:all.optJSONObject(pkg));
-                }
-                status.setText("Conectado · "+apps.length()+" aplicaciones detectadas");
-            })
-        );
-    }
+        address = new EditText(this);
+        address.setSingleLine(true);
+        address.setText(getPreferences(0).getString("address", ""));
+        address.setHint("http://192.168.x.x:8765");
+        page.addView(address);
 
-    void addEditor(String pkg,String defaultLabel,JSONObject cfg) {
-        if(cfg==null)cfg=new JSONObject();
-        LinearLayout card=new LinearLayout(this);card.setOrientation(1);card.setPadding(12,10,12,10);card.setBackgroundColor(0xff1b2940);
-        LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);cp.bottomMargin=12;appList.addView(card,cp);
-        card.addView(text(defaultLabel,16,true));card.addView(text(pkg,10,false));
-        EditText label=field("Nombre visible",cfg.optString("label",defaultLabel));card.addView(label);
-        EditText category=field("Categoría (vacío = automática)",cfg.optString("category",""));card.addView(category);
-        LinearLayout dims=new LinearLayout(this);
-        EditText width=number("Ancho dp",cfg.optInt("cardWidthDp",196));
-        EditText height=number("Alto dp",cfg.optInt("cardHeightDp",110));
-        dims.addView(width,new LinearLayout.LayoutParams(0,-2,1));dims.addView(height,new LinearLayout.LayoutParams(0,-2,1));card.addView(dims);
-        LinearLayout presets=new LinearLayout(this);
-        int[][] sizes={{140,80},{170,96},{196,110},{230,130},{280,150}};
-        String[] presetNames={"XS","S","M","L","XL"};
-        for(int i=0;i<sizes.length;i++){final int j=i;Button b=button(presetNames[i]);b.setTextSize(10);presets.addView(b,new LinearLayout.LayoutParams(0,-2,1));b.setOnClickListener(v->{width.setText(""+sizes[j][0]);height.setText(""+sizes[j][1]);});}
-        card.addView(presets);
-        Spinner style=new Spinner(this);String[] styles={"Glass","Sólida","Contorno","Minimal"};style.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,styles));
-        String savedStyle=cfg.optString("cardStyle","glass");style.setSelection(savedStyle.equals("solid")?1:savedStyle.equals("outline")?2:savedStyle.equals("minimal")?3:0);card.addView(style);
-        Spinner radius=new Spinner(this);String[] radii={"Recta","Suave","Redonda","Píldora"};radius.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,radii));
-        int rv=cfg.optInt("cardRadiusDp",16);radius.setSelection(rv==0?0:rv==8?1:rv==28?3:2);card.addView(radius);
-        EditText order=number("Orden (0 primero)",cfg.optInt("order",10000));card.addView(order);
-        CheckBox hidden=new CheckBox(this);hidden.setTextColor(Color.WHITE);hidden.setText("Ocultar esta aplicación");hidden.setChecked(cfg.optBoolean("hidden",false));card.addView(hidden);
-        Button original=button("Usar / restaurar icono original de la app");card.addView(original);
-        original.setOnClickListener(v->new android.app.AlertDialog.Builder(this)
-            .setTitle("Icono original")
-            .setMessage("Se quitará la imagen personalizada y el launcher volverá a usar el icono incluido en la aplicación instalada.")
-            .setNegativeButton("Cancelar",null)
-            .setPositiveButton("Restaurar",(d,w)->{
-                try { JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("restoreOriginalIcon",true);
-                    request("POST","/v1/launcher/app-config",o,r->{status.setText("Icono original restaurado: "+defaultLabel);if(pkg.equals(pendingPackage))pendingIcon="";});
-                } catch(Exception e){status.setText("No se pudo restaurar el icono.");}
-            }).show());
-        Button copyDefault=button("Usar icono original de otra aplicación");card.addView(copyDefault);
-        copyDefault.setOnClickListener(v->chooseDefaultIconSource(pkg,defaultLabel));
-        Button choose=button("Subir imagen personalizada");card.addView(choose);
-        choose.setOnClickListener(v->{pendingPackage=pkg;Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("image/*");startActivityForResult(i,44);});
-        TextView bannerTitle=text("PG BANNER STUDIO · BANNERS LEANBACK",14,true);card.addView(bannerTitle);
-        TextView bannerHelp=text("Importá una imagen de Gemini. Se recorta al centro y se convierte a PNG 320 × 180, sin pedirle a Gemini una resolución específica.",11,false);card.addView(bannerHelp);
-        Button chooseBanner=button("Importar y convertir imagen para banner");card.addView(chooseBanner);
-        chooseBanner.setOnClickListener(v->{pendingPackage=pkg;pendingBanner="";status.setText("Elegí una imagen para "+defaultLabel+".");Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("image/*");startActivityForResult(i,45);});
-        Button applyBanner=button("Aplicar banner Leanback");card.addView(applyBanner);
-        applyBanner.setOnClickListener(v->{if(!pkg.equals(pendingPackage)||pendingBanner.isEmpty()){status.setText("Primero importá una imagen en PG Banner Studio para esta aplicación.");return;}
-            try{JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("bannerBase64",pendingBanner);bannerProgress.setVisibility(View.VISIBLE);status.setText("Enviando banner al TV Box y guardando archivo…");request("POST","/v1/launcher/app-config",o,r->{bannerProgress.setVisibility(View.GONE);status.setText("Banner aplicado a "+defaultLabel+". El launcher ya puede mostrarlo.");pendingBanner="";});}catch(Exception e){bannerProgress.setVisibility(View.GONE);status.setText("Error preparando el banner: "+e.getMessage());}});
-        Button copyBannerDeclaration=button("Copiar declaración Android TV");card.addView(copyBannerDeclaration);
-        copyBannerDeclaration.setOnClickListener(v->{
-            String declaration = "<application\n    android:banner=\"@drawable/tv_banner\">\n    <!-- Para una actividad concreta también podés usar: -->\n    <activity\n        android:name=\".MainActivity\"\n        android:banner=\"@drawable/tv_banner\" />\n</application>";
-            android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
-            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Declaración Leanback",declaration));
-            status.setText("Declaración copiada. Colocá el PNG en res/drawable-nodpi/tv_banner.png y agregá android:banner al Manifest del APK fuente.");
+        token = new EditText(this);
+        token.setSingleLine(true);
+        token.setInputType(129);
+        token.setText(getPreferences(0).getString("token", ""));
+        token.setHint("Token del TV Box");
+        page.addView(token);
+
+        Button connect = button("Conectar con Google TV PG");
+        page.addView(connect);
+        connect.setOnClickListener(v -> connect());
+        status = text("El celular y el TV Box deben estar en la misma red Wi-Fi.", 12, false);
+        page.addView(status);
+        progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progress.setIndeterminate(true);
+        progress.setVisibility(View.GONE);
+        page.addView(progress);
+
+        divider(page);
+        page.addView(text("TAMAÑO DE TARJETAS", 17, true));
+        page.addView(text("Ajustá todas las tarjetas gradualmente. Sus banners originales no se modifican.", 12, false));
+        scaleLabel = text("100%", 23, true);
+        page.addView(scaleLabel);
+        scaleSeek = new SeekBar(this);
+        scaleSeek.setMax(75);
+        scaleSeek.setProgress(25);
+        page.addView(scaleSeek);
+        scaleSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seekBar, int value, boolean fromUser) {
+                float scale = 0.75f + value / 100f;
+                scaleLabel.setText(Math.round(scale * 100) + "%");
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) { }
+            @Override public void onStopTrackingTouch(SeekBar seekBar) { saveCardScale(); }
         });
-        Button removeBanner=button("Quitar banner personalizado");card.addView(removeBanner);
-        removeBanner.setOnClickListener(v->{try{JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("removeCustomBanner",true);request("POST","/v1/launcher/app-config",o,r->status.setText("Banner personalizado quitado: "+defaultLabel));}catch(Exception e){status.setText("No se pudo quitar el banner.");}});
-        Button iconOnly=button("Aplicar solo el icono");card.addView(iconOnly);
-        iconOnly.setOnClickListener(v->{if(!pkg.equals(pendingPackage)||pendingIcon.isEmpty()){status.setText("Primero elegí un icono para esta aplicación.");return;}
-            try{JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("iconBase64",pendingIcon);request("POST","/v1/launcher/app-config",o,r->{status.setText("Icono aplicado a "+defaultLabel);pendingIcon="";});}catch(Exception e){status.setText("Error preparando el icono.");}});
-        Button save=button("Guardar cambios");card.addView(save);
-        save.setOnClickListener(v->{try{
-            JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("label",label.getText().toString().trim());
-            o.put("category",category.getText().toString().trim());o.put("cardWidthDp",Integer.parseInt(width.getText().toString()));
-            o.put("cardHeightDp",Integer.parseInt(height.getText().toString()));o.put("order",Integer.parseInt(order.getText().toString()));o.put("hidden",hidden.isChecked());
-            String st=style.getSelectedItemPosition()==1?"solid":style.getSelectedItemPosition()==2?"outline":style.getSelectedItemPosition()==3?"minimal":"glass";
-            o.put("cardStyle",st);int[] rads={0,8,16,28};o.put("cardRadiusDp",rads[radius.getSelectedItemPosition()]);
-            if(pkg.equals(pendingPackage)&&!pendingIcon.isEmpty())o.put("iconBase64",pendingIcon);
-            request("POST","/v1/launcher/app-config",o,r->{status.setText("Configuración aplicada a "+defaultLabel);if(pkg.equals(pendingPackage))pendingIcon="";});
-        }catch(Exception e){status.setText("Revisá los valores de tamaño y orden.");}});
-    }
 
-    void chooseDefaultIconSource(String targetPackage,String targetLabel) {
-        if(installedApps==null||installedApps.length()==0){status.setText("Primero conectá PG Control para cargar las aplicaciones.");return;}
-        java.util.ArrayList<String> labels=new java.util.ArrayList<>();
-        java.util.ArrayList<String> packages=new java.util.ArrayList<>();
-        for(int i=0;i<installedApps.length();i++){
-            JSONObject item=installedApps.optJSONObject(i);if(item==null)continue;
-            String sourcePkg=item.optString("packageName","");
-            if(sourcePkg.isEmpty())continue;
-            packages.add(sourcePkg);
-            labels.add(item.optString("label",sourcePkg)+"  ·  "+sourcePkg);
+        divider(page);
+        page.addView(text("TIENDA DE WIDGETS", 17, true));
+        page.addView(text("Agregá widgets y acomodalos directamente sobre la vista previa del televisor.", 12, false));
+        preview = new WidgetPreview(this);
+        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(-1, dp(205));
+        previewParams.topMargin = dp(10);
+        previewParams.bottomMargin = dp(8);
+        page.addView(preview, previewParams);
+        page.addView(text("Tocá un widget y arrastralo para cambiarlo de lugar.", 11, false));
+
+        LinearLayout catalog1 = new LinearLayout(this);
+        LinearLayout catalog2 = new LinearLayout(this);
+        String[][] catalog = {
+            {"Reloj", "clock"}, {"Fecha", "date"}, {"Hora + fecha", "clock_date"},
+            {"Info. TV Box", "device"}, {"Red local", "wifi"}, {"Bienvenida", "greeting"}
+        };
+        for (int i = 0; i < catalog.length; i++) {
+            final String type = catalog[i][1];
+            Button b = button(catalog[i][0]);
+            b.setTextSize(11);
+            (i < 3 ? catalog1 : catalog2).addView(b, new LinearLayout.LayoutParams(0, dp(48), 1));
+            b.setOnClickListener(v -> addWidget(type));
         }
-        String[] choices=labels.toArray(new String[0]);
-        new android.app.AlertDialog.Builder(this)
-            .setTitle("Elegir icono original")
-            .setMessage("Seleccioná una aplicación instalada. Su icono de fábrica se copiará como icono personalizado de "+targetLabel+".")
-            .setItems(choices,(dialog,which)->{
-                String sourcePackage=packages.get(which);
-                try{
-                    JSONObject o=new JSONObject();o.put("packageName",targetPackage);o.put("copyIconFromPackage",sourcePackage);
-                    status.setText("Copiando icono original de "+labels.get(which)+"…");
-                    request("POST","/v1/launcher/app-config",o,r->status.setText("Icono original copiado a "+targetLabel+"."));
-                }catch(Exception e){status.setText("No se pudo preparar la copia del icono.");}
-            }).setNegativeButton("Cancelar",null).show();
+        page.addView(catalog1);
+        page.addView(catalog2);
+
+        divider(page);
+        page.addView(text("WIDGET SELECCIONADO", 16, true));
+        selectedLabel = text("Seleccioná un widget en la vista previa", 13, false);
+        page.addView(selectedLabel);
+
+        page.addView(text("Ancho", 12, true));
+        widthSeek = new SeekBar(this);
+        widthSeek.setMax(760);
+        widthSeek.setProgress(180);
+        page.addView(widthSeek);
+        widthSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seekBar, int value, boolean fromUser) {
+                if (!loadingControls && fromUser) updateSelectedSize(140 + value, -1);
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) { }
+            @Override public void onStopTrackingTouch(SeekBar seekBar) { preview.invalidate(); }
+        });
+
+        page.addView(text("Alto", 12, true));
+        heightSeek = new SeekBar(this);
+        heightSeek.setMax(290);
+        heightSeek.setProgress(70);
+        page.addView(heightSeek);
+        heightSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seekBar, int value, boolean fromUser) {
+                if (!loadingControls && fromUser) updateSelectedSize(-1, 70 + value);
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) { }
+            @Override public void onStopTrackingTouch(SeekBar seekBar) { preview.invalidate(); }
+        });
+
+        styleSpinner = new Spinner(this);
+        String[] styles = {"Cristal", "Cinemático", "Sólido", "Contorno"};
+        styleSpinner.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item, styles));
+        page.addView(styleSpinner);
+        styleSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                if (loadingControls) return;
+                JSONObject item = selectedWidget();
+                if (item == null) return;
+                try {
+                    String[] values = {"glass", "cinematic", "solid", "outline"};
+                    item.put("style", values[position]);
+                    preview.invalidate();
+                } catch (Exception ignored) { }
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) { }
+        });
+
+        LinearLayout actions = new LinearLayout(this);
+        Button remove = button("Quitar widget");
+        Button save = button("Guardar en TV");
+        actions.addView(remove, new LinearLayout.LayoutParams(0, -2, 1));
+        actions.addView(save, new LinearLayout.LayoutParams(0, -2, 1));
+        page.addView(actions);
+        remove.setOnClickListener(v -> removeSelected());
+        save.setOnClickListener(v -> saveWidgets());
+
+        TextView note = text("Los banners de las aplicaciones se conservan. Los widgets se dibujan en una capa independiente y se pueden mover sin reemplazar las imágenes.", 11, false);
+        LinearLayout.LayoutParams noteParams = new LinearLayout.LayoutParams(-1, -2);
+        noteParams.topMargin = dp(12);
+        page.addView(note, noteParams);
+
+        scroll.addView(page);
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        setContentView(root);
+        updateSelectedControls();
     }
 
-    @Override protected void onActivityResult(int request,int result,Intent data){
-        super.onActivityResult(request,result,data);
-        if(result!=RESULT_OK||data==null||data.getData()==null)return;
-        final android.net.Uri selected=data.getData();
-        if(request==45){
-            final String targetPackage=pendingPackage;
-            showProgress("Leyendo imagen original…");
-            status.setText("PG Banner Studio: preparando imagen…");
-            imageWorker.execute(()->{
-                Bitmap source=null,crop=null,banner=null;
-                try {
-                    BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;
-                    try(InputStream probe=getContentResolver().openInputStream(selected)){BitmapFactory.decodeStream(probe,null,bounds);}
-                    if(bounds.outWidth<=0||bounds.outHeight<=0)throw new Exception("Formato de imagen no compatible");
-                    int sample=1;
-                    while(Math.max(bounds.outWidth/sample,bounds.outHeight/sample)>2048)sample*=2;
-                    BitmapFactory.Options opts=new BitmapFactory.Options();opts.inSampleSize=sample;opts.inPreferredConfig=Bitmap.Config.ARGB_8888;
-                    runOnUiThread(()->status.setText("PG Banner Studio: decodificando imagen…"));
-                    try(InputStream input=getContentResolver().openInputStream(selected)){source=BitmapFactory.decodeStream(input,null,opts);}
-                    if(source==null)throw new Exception("No se pudo decodificar la imagen");
-                    int sw=source.getWidth(),sh=source.getHeight();float target=16f/9f;
-                    int cw=sw,ch=sh;
-                    if(sw/(float)sh>target)cw=Math.max(1,Math.round(sh*target));
-                    else ch=Math.max(1,Math.round(sw/target));
-                    crop=Bitmap.createBitmap(source,(sw-cw)/2,(sh-ch)/2,cw,ch);
-                    banner=Bitmap.createScaledBitmap(crop,320,180,true);
-                    ByteArrayOutputStream output=new ByteArrayOutputStream();
-                    if(!banner.compress(Bitmap.CompressFormat.PNG,100,output))throw new Exception("No se pudo generar el PNG");
-                    String encoded=Base64.encodeToString(output.toByteArray(),Base64.NO_WRAP);
-                    runOnUiThread(()->{
-                        pendingPackage=targetPackage;pendingBanner=encoded;dismissProgress();
-                        status.setText("Imagen convertida correctamente · PNG 320 × 180 · "+(encoded.length()/1024)+" KB. Ahora tocá Aplicar banner Leanback.");
-                    });
-                }catch(Exception e){
-                    String message=e.getMessage()==null?"Error de conversión":e.getMessage();
-                    runOnUiThread(()->{dismissProgress();status.setText("PG Banner Studio: "+message);});
-                }finally{
-                    if(banner!=null&&banner!=crop&&!banner.isRecycled())banner.recycle();
-                    if(crop!=null&&crop!=source&&!crop.isRecycled())crop.recycle();
-                    if(source!=null&&!source.isRecycled())source.recycle();
-                }
-            });
+    private void connect() {
+        String a = address.getText().toString().trim().replaceAll("/+$", "");
+        String t = token.getText().toString().trim();
+        if (!a.startsWith("http://") && !a.startsWith("https://")) a = "http://" + a;
+        address.setText(a);
+        getPreferences(0).edit().putString("address", a).putString("token", t).apply();
+        status.setText("Conectando…");
+        request("GET", "/v1/device", null, device -> {
+            status.setText("Conectado a " + device.optString("launcher", "Google TV PG") + " · " + device.optString("model"));
+            loadWidgets();
+            loadCardScale();
+        });
+    }
+
+    private void loadWidgets() {
+        request("GET", "/v1/launcher/widgets", null, result -> {
+            JSONArray received = result.optJSONArray("widgets");
+            widgets = received == null ? new JSONArray() : received;
+            selectedIndex = widgets.length() == 0 ? -1 : 0;
+            preview.invalidate();
+            updateSelectedControls();
+            status.setText("Conectado · " + widgets.length() + " widgets configurados");
+        });
+    }
+
+    private void loadCardScale() {
+        request("GET", "/v1/launcher/card-scale", null, result -> {
+            float scale = (float) result.optDouble("scale", 1.0);
+            scaleSeek.setProgress(Math.max(0, Math.min(75, Math.round((scale - 0.75f) * 100f))));
+            scaleLabel.setText(Math.round(scale * 100) + "%");
+        });
+    }
+
+    private void saveCardScale() {
+        float scale = 0.75f + scaleSeek.getProgress() / 100f;
+        try {
+            JSONObject body = new JSONObject();
+            body.put("scale", scale);
+            request("POST", "/v1/launcher/card-scale", body, result ->
+                status.setText("Tamaño de tarjetas aplicado: " + Math.round(scale * 100) + "%"));
+        } catch (Exception e) {
+            status.setText("No se pudo preparar el tamaño.");
+        }
+    }
+
+    private void addWidget(String type) {
+        if (widgets.length() >= 12) {
+            status.setText("Podés colocar hasta 12 widgets.");
             return;
         }
-        if(request!=44)return;
-        try(InputStream in=getContentResolver().openInputStream(selected)){
-            Bitmap bmp=BitmapFactory.decodeStream(in);if(bmp==null)throw new Exception("invalid image");
-            float scale=Math.min(1f,256f/Math.max(bmp.getWidth(),bmp.getHeight()));
-            Bitmap small=Bitmap.createScaledBitmap(bmp,Math.max(1,(int)(bmp.getWidth()*scale)),Math.max(1,(int)(bmp.getHeight()*scale)),true);
-            ByteArrayOutputStream out=new ByteArrayOutputStream();small.compress(Bitmap.CompressFormat.PNG,100,out);
-            pendingIcon=Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP);if(small!=bmp)small.recycle();bmp.recycle();
-            status.setText("Icono seleccionado para "+pendingPackage+". Tocá Aplicar solo el icono o Guardar cambios.");
-        }catch(Exception e){status.setText("No se pudo abrir esa imagen.");}
+        try {
+            JSONObject item = new JSONObject();
+            item.put("id", "pgw" + System.currentTimeMillis());
+            item.put("type", type);
+            item.put("style", "glass");
+            int offset = (widgets.length() % 5) * 36;
+            item.put("x", Math.max(0, 1420 - offset));
+            item.put("y", 145 + offset);
+            item.put("w", type.equals("clock") ? 300 : 360);
+            item.put("h", type.equals("date") ? 105 : 145);
+            widgets.put(item);
+            selectedIndex = widgets.length() - 1;
+            preview.invalidate();
+            updateSelectedControls();
+            status.setText("Widget agregado. Arrastralo para ubicarlo y guardá los cambios.");
+        } catch (Exception e) {
+            status.setText("No se pudo agregar el widget.");
+        }
     }
 
-    private void showProgress(String message){
-        runOnUiThread(()->{if(bannerProgress!=null)bannerProgress.setVisibility(View.VISIBLE);status.setText(message);});
-    }
-    private void dismissProgress(){
-        runOnUiThread(()->{if(bannerProgress!=null)bannerProgress.setVisibility(View.GONE);});
+    private JSONObject selectedWidget() {
+        if (selectedIndex < 0 || selectedIndex >= widgets.length()) return null;
+        return widgets.optJSONObject(selectedIndex);
     }
 
-    interface Done{void accept(JSONObject o);}
-    void request(String method,String path,JSONObject body,Done done){
-        String base=address.getText().toString().trim().replaceAll("/+$",""), key=token.getText().toString().trim();
-        io.execute(()->{HttpURLConnection c=null;try{
-            c=(HttpURLConnection)new URL(base+path).openConnection();c.setRequestMethod(method);c.setConnectTimeout(7000);c.setReadTimeout(12000);
-            c.setRequestProperty("Authorization","Bearer "+key);c.setRequestProperty("Accept","application/json");
-            if(body!=null){c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json");try(OutputStream o=c.getOutputStream()){o.write(body.toString().getBytes(StandardCharsets.UTF_8));}}
-            int code=c.getResponseCode();InputStream in=code<400?c.getInputStream():c.getErrorStream();ByteArrayOutputStream out=new ByteArrayOutputStream();
-            byte[] buf=new byte[4096];int n;while((n=in.read(buf))>0)out.write(buf,0,n);
-            JSONObject response=new JSONObject(new String(out.toByteArray(),StandardCharsets.UTF_8));
-            runOnUiThread(()->{if(code>=200&&code<300)done.accept(response);else {bannerProgress.setVisibility(View.GONE);status.setText("Error "+code+": "+response.optString("error"));}});
-        }catch(Exception e){runOnUiThread(()->{bannerProgress.setVisibility(View.GONE);status.setText("Sin conexión: "+e.getMessage());});}finally{if(c!=null)c.disconnect();}});
+    private void updateSelectedSize(int width, int height) {
+        JSONObject item = selectedWidget();
+        if (item == null) return;
+        try {
+            if (width > 0) item.put("w", Math.min(900, width));
+            if (height > 0) item.put("h", Math.min(360, height));
+            int w = item.optInt("w", 320), h = item.optInt("h", 140);
+            item.put("x", Math.max(0, Math.min(1920 - w, item.optInt("x", 0))));
+            item.put("y", Math.max(0, Math.min(1080 - h, item.optInt("y", 0))));
+            preview.invalidate();
+        } catch (Exception ignored) { }
     }
 
-    EditText field(String hint,String value){EditText e=new EditText(this);e.setSingleLine();e.setHint(hint);e.setText(value);return e;}
-    EditText number(String hint,int value){EditText e=field(hint,String.valueOf(value));e.setInputType(2);return e;}
-    TextView text(String s,int size,boolean bold){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(Color.WHITE);if(bold)t.setTypeface(null,1);return t;}
-    Button button(String s){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setTextColor(Color.WHITE);b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff315b91));return b;}
-    @Override protected void onDestroy(){super.onDestroy();io.shutdownNow();imageWorker.shutdownNow();}
+    private void updateSelectedControls() {
+        JSONObject item = selectedWidget();
+        loadingControls = true;
+        boolean enabled = item != null;
+        widthSeek.setEnabled(enabled);
+        heightSeek.setEnabled(enabled);
+        styleSpinner.setEnabled(enabled);
+        if (item == null) {
+            selectedLabel.setText("Seleccioná un widget en la vista previa");
+        } else {
+            String type = item.optString("type", "clock");
+            selectedLabel.setText(widgetName(type) + " · " + item.optInt("w", 320) + " × " + item.optInt("h", 140));
+            widthSeek.setProgress(Math.max(0, Math.min(760, item.optInt("w", 320) - 140)));
+            heightSeek.setProgress(Math.max(0, Math.min(290, item.optInt("h", 140) - 70)));
+            String style = item.optString("style", "glass");
+            styleSpinner.setSelection(style.equals("cinematic") ? 1 : style.equals("solid") ? 2 : style.equals("outline") ? 3 : 0);
+        }
+        loadingControls = false;
+    }
+
+    private void removeSelected() {
+        if (selectedIndex < 0 || selectedIndex >= widgets.length()) return;
+        JSONArray next = new JSONArray();
+        for (int i = 0; i < widgets.length(); i++) if (i != selectedIndex) next.put(widgets.optJSONObject(i));
+        widgets = next;
+        selectedIndex = widgets.length() == 0 ? -1 : Math.min(selectedIndex, widgets.length() - 1);
+        preview.invalidate();
+        updateSelectedControls();
+    }
+
+    private void saveWidgets() {
+        try {
+            JSONObject body = new JSONObject();
+            body.put("widgets", widgets);
+            status.setText("Guardando distribución de widgets…");
+            request("POST", "/v1/launcher/widgets", body, result -> {
+                widgets = result.optJSONArray("widgets") == null ? widgets : result.optJSONArray("widgets");
+                preview.invalidate();
+                status.setText("Guardado en el TV Box · " + widgets.length() + " widgets");
+            });
+        } catch (Exception e) {
+            status.setText("No se pudo preparar la configuración.");
+        }
+    }
+
+    private String widgetName(String type) {
+        if ("clock".equals(type)) return "Reloj";
+        if ("date".equals(type)) return "Fecha";
+        if ("clock_date".equals(type)) return "Hora + fecha";
+        if ("device".equals(type)) return "Información del TV Box";
+        if ("wifi".equals(type)) return "Red local";
+        return "Bienvenida";
+    }
+
+    private void request(String method, String path, JSONObject body, Done done) {
+        String base = address.getText().toString().trim().replaceAll("/+$", "");
+        String key = token.getText().toString().trim();
+        if (base.isEmpty() || key.isEmpty()) {
+            status.setText("Ingresá la dirección y el token del TV Box.");
+            return;
+        }
+        progress.setVisibility(View.VISIBLE);
+        io.execute(() -> {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(base + path).openConnection();
+                connection.setRequestMethod(method);
+                connection.setConnectTimeout(7000);
+                connection.setReadTimeout(12000);
+                connection.setRequestProperty("Authorization", "Bearer " + key);
+                connection.setRequestProperty("Accept", "application/json");
+                if (body != null) {
+                    connection.setDoOutput(true);
+                    connection.setRequestProperty("Content-Type", "application/json");
+                    try (OutputStream output = connection.getOutputStream()) {
+                        output.write(body.toString().getBytes(StandardCharsets.UTF_8));
+                    }
+                }
+                int code = connection.getResponseCode();
+                InputStream input = code < 400 ? connection.getInputStream() : connection.getErrorStream();
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                byte[] buffer = new byte[4096];
+                int count;
+                while ((count = input.read(buffer)) > 0) output.write(buffer, 0, count);
+                JSONObject response = new JSONObject(new String(output.toByteArray(), StandardCharsets.UTF_8));
+                runOnUiThread(() -> {
+                    progress.setVisibility(View.GONE);
+                    if (code >= 200 && code < 300) done.accept(response);
+                    else status.setText("Error " + code + ": " + response.optString("error", "sin detalle"));
+                });
+            } catch (Exception e) {
+                String message = e.getMessage() == null ? "sin detalle" : e.getMessage();
+                runOnUiThread(() -> {
+                    progress.setVisibility(View.GONE);
+                    status.setText("Sin conexión: " + message);
+                });
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        });
+    }
+
+    interface Done { void accept(JSONObject result); }
+
+    private class WidgetPreview extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private float downX, downY;
+        private int dragStartX, dragStartY;
+        private boolean dragging = false;
+
+        WidgetPreview(Context context) { super(context); setLayerType(View.LAYER_TYPE_SOFTWARE, null); }
+
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float sx = getWidth() / 1920f, sy = getHeight() / 1080f;
+            canvas.drawColor(0xff101a2a);
+            paint.setColor(0xff24344b);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(1);
+            for (int x = 0; x <= 1920; x += 240) canvas.drawLine(x * sx, 0, x * sx, getHeight(), paint);
+            for (int y = 0; y <= 1080; y += 180) canvas.drawLine(0, y * sy, getWidth(), y * sy, paint);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(0x447EA8D8);
+            canvas.drawRect(0, 0, getWidth(), getHeight(), paint);
+            for (int i = 0; i < widgets.length(); i++) {
+                JSONObject item = widgets.optJSONObject(i);
+                if (item == null) continue;
+                float x = item.optInt("x", 0) * sx, y = item.optInt("y", 0) * sy;
+                float w = item.optInt("w", 320) * sx, h = item.optInt("h", 140) * sy;
+                RectF rect = new RectF(x, y, x + w, y + h);
+                String style = item.optString("style", "glass");
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(style.equals("solid") ? 0xff24364d : style.equals("cinematic") ? 0xdd304d70 : 0x994b6b91);
+                canvas.drawRoundRect(rect, 9, 9, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(i == selectedIndex ? 3 : 1);
+                paint.setColor(i == selectedIndex ? 0xffa8d9ff : 0xff6685a8);
+                canvas.drawRoundRect(rect, 9, 9, paint);
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(Color.WHITE);
+                paint.setTextAlign(Paint.Align.CENTER);
+                paint.setTextSize(Math.max(8, Math.min(14, h * 0.30f)));
+                canvas.drawText(widgetName(item.optString("type", "clock")), rect.centerX(), rect.centerY() + paint.getTextSize() / 3f, paint);
+            }
+        }
+
+        @Override public boolean onTouchEvent(MotionEvent event) {
+            float sx = getWidth() / 1920f, sy = getHeight() / 1080f;
+            float x = event.getX() / sx, y = event.getY() / sy;
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                selectedIndex = -1;
+                for (int i = widgets.length() - 1; i >= 0; i--) {
+                    JSONObject item = widgets.optJSONObject(i);
+                    if (item == null) continue;
+                    int wx = item.optInt("x", 0), wy = item.optInt("y", 0);
+                    int ww = item.optInt("w", 320), wh = item.optInt("h", 140);
+                    if (x >= wx && x <= wx + ww && y >= wy && y <= wy + wh) {
+                        selectedIndex = i;
+                        dragStartX = wx;
+                        dragStartY = wy;
+                        downX = x;
+                        downY = y;
+                        dragging = true;
+                        break;
+                    }
+                }
+                updateSelectedControls();
+                invalidate();
+                return true;
+            }
+            if (event.getAction() == MotionEvent.ACTION_MOVE && dragging) {
+                JSONObject item = selectedWidget();
+                if (item != null) {
+                    int w = item.optInt("w", 320), h = item.optInt("h", 140);
+                    try {
+                        item.put("x", Math.max(0, Math.min(1920 - w, Math.round(dragStartX + x - downX))));
+                        item.put("y", Math.max(0, Math.min(1080 - h, Math.round(dragStartY + y - downY))));
+                    } catch (Exception ignored) { }
+                    invalidate();
+                }
+                return true;
+            }
+            if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                dragging = false;
+                updateSelectedControls();
+                invalidate();
+                return true;
+            }
+            return true;
+        }
+    }
+
+    private TextView text(String value, int size, boolean bold) {
+        TextView view = new TextView(this);
+        view.setText(value);
+        view.setTextColor(0xffedf4ff);
+        view.setTextSize(size);
+        if (bold) view.setTypeface(null, android.graphics.Typeface.BOLD);
+        view.setPadding(0, dp(5), 0, dp(5));
+        return view;
+    }
+
+    private Button button(String value) {
+        Button view = new Button(this);
+        view.setText(value);
+        view.setAllCaps(false);
+        view.setTextColor(Color.WHITE);
+        view.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff315b91));
+        return view;
+    }
+
+    private void divider(LinearLayout parent) {
+        View line = new View(this);
+        line.setBackgroundColor(0xff26364d);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(1));
+        params.topMargin = dp(15);
+        params.bottomMargin = dp(13);
+        parent.addView(line, params);
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    @Override protected void onDestroy() {
+        super.onDestroy();
+        io.shutdownNow();
+    }
 }
