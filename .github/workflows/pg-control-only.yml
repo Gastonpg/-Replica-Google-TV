@@ -1,0 +1,44 @@
+name: Build PG Control only
+
+on:
+  push:
+    branches: [ "pg-control-size-only" ]
+    paths:
+      - "pgcontrol/**"
+      - "settings.gradle"
+      - "build.gradle"
+      - ".github/workflows/pg-control-only.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-pg-control:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools"
+      - name: Install Android platform and build tools
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Build PG Control APK only
+        run: gradle :pgcontrol:assembleDebug --no-daemon
+      - name: Upload PG Control APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PG-Control-size-only
+          path: pgcontrol/build/outputs/apk/debug/pgcontrol-debug.apk
+          if-no-files-found: error
