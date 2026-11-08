@@ -38,6 +38,10 @@ static int create_mouse(void) {
         ioctl(fd, UI_SET_RELBIT, REL_Y) < 0) return -2;
     ioctl(fd, UI_SET_KEYBIT, BTN_RIGHT);
     ioctl(fd, UI_SET_KEYBIT, BTN_MIDDLE);
+    ioctl(fd, UI_SET_KEYBIT, KEY_UP);
+    ioctl(fd, UI_SET_KEYBIT, KEY_DOWN);
+    ioctl(fd, UI_SET_KEYBIT, KEY_LEFT);
+    ioctl(fd, UI_SET_KEYBIT, KEY_RIGHT);
     ioctl(fd, UI_SET_PROPBIT, INPUT_PROP_POINTER);
     struct uinput_user_dev dev;
     memset(&dev, 0, sizeof(dev));
@@ -70,6 +74,21 @@ int main(void) {
         } else if (cmd == 2) {
             emit(EV_KEY, BTN_MOUSE, 1); sync_events();
             emit(EV_KEY, BTN_MOUSE, 0); sync_events();
+        } else if (cmd == 4) {
+            unsigned char android_key;
+            if (read_full(&android_key, 1) <= 0) break;
+            unsigned short linux_key = 0;
+            switch (android_key) {
+                case 19: linux_key = KEY_UP; break;
+                case 20: linux_key = KEY_DOWN; break;
+                case 21: linux_key = KEY_LEFT; break;
+                case 22: linux_key = KEY_RIGHT; break;
+                default: break;
+            }
+            if (linux_key) {
+                emit(EV_KEY, linux_key, 1); sync_events();
+                emit(EV_KEY, linux_key, 0); sync_events();
+            }
         }
     }
     ioctl(fd, UI_DEV_DESTROY);
