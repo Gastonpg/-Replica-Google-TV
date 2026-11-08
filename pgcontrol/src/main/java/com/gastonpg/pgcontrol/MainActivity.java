@@ -374,7 +374,7 @@ public class MainActivity extends Activity {
         remoteVisible = true;
         touchpadMode = true;
         LinearLayout root = column();
-        root.setPadding(dp(12), dp(10), dp(12), dp(12));
+        root.setPadding(dp(14), dp(10), dp(14), dp(12));
         root.setBackgroundColor(BG);
 
         LinearLayout header = new LinearLayout(this);
@@ -385,71 +385,114 @@ public class MainActivity extends Activity {
         TextView title = text("CONTROL REMOTO", 16, true, Color.WHITE);
         title.setGravity(Gravity.CENTER);
         header.addView(title, new LinearLayout.LayoutParams(0, dp(46), 1));
-        Button refresh = smallButton("↻", PANEL2);
-        refresh.setOnClickListener(v -> captureNow());
-        header.addView(refresh);
-        root.addView(header);
-
-        remoteStatus = text("Conectando con la pantalla del TV Box…", 11, false, MUTED);
-        remoteStatus.setPadding(dp(4), dp(4), dp(4), dp(7));
-        root.addView(remoteStatus);
-
-        FrameLayout screenFrame = new FrameLayout(this);
-        screenFrame.setBackground(round(PANEL, 0xff34465c, 12));
-        screenPreview = new ImageView(this);
-        screenPreview.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        screenPreview.setAdjustViewBounds(false);
-        screenPreview.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-        screenFrame.addView(screenPreview, new FrameLayout.LayoutParams(-1, -1));
-        screenPreview.setOnTouchListener((view, event) -> handleScreenTouch(event));
-        LinearLayout.LayoutParams screenLp = new LinearLayout.LayoutParams(-1, 0, 1f);
-        screenLp.bottomMargin = dp(9);
-        root.addView(screenFrame, screenLp);
-
-        LinearLayout modeRow = new LinearLayout(this);
-        modeRow.setGravity(Gravity.CENTER_VERTICAL);
-        Button touch = smallButton("Modo: Flechas + OK", BLUE);
-        touch.setOnClickListener(v -> {
-            touchpadMode = !touchpadMode;
-            touch.setText(touchpadMode ? "Modo: Flechas + OK" : "Modo: Táctil");
-            touch.setBackgroundTintList(android.content.res.ColorStateList.valueOf(touchpadMode ? BLUE : PANEL2));
-            remoteStatus.setText(touchpadMode
-                ? "Navegación por botones: usá las flechas y OK. La imagen no recibe toques."
-                : "Modo táctil: tocá para pulsar y arrastrá para deslizar.");
-        });
-        modeRow.addView(touch, new LinearLayout.LayoutParams(0, dp(42), 1));
         Button tasks = smallButton("Multitarea", BLUE);
         tasks.setOnClickListener(v -> showTasksDialog());
-        LinearLayout.LayoutParams taskLp = new LinearLayout.LayoutParams(0, dp(42), 1);
-        taskLp.leftMargin = dp(8);
-        modeRow.addView(tasks, taskLp);
-        root.addView(modeRow);
+        header.addView(tasks);
+        root.addView(header);
 
-        LinearLayout nav = new LinearLayout(this);
-        nav.setGravity(Gravity.CENTER);
-        addKeyButton(nav, "Atrás", 4);
-        addKeyButton(nav, "Inicio", 3);
-        addKeyButton(nav, "Recientes", 187);
-        addKeyButton(nav, "OK", 23);
-        root.addView(nav);
+        remoteStatus = text("Control directo · sin transmisión de pantalla", 11, false, MUTED);
+        remoteStatus.setPadding(dp(4), dp(5), dp(4), dp(10));
+        root.addView(remoteStatus);
 
-        LinearLayout dpad = new LinearLayout(this);
-        dpad.setGravity(Gravity.CENTER);
+        LinearLayout modes = new LinearLayout(this);
+        modes.setGravity(Gravity.CENTER);
+        Button mouseMode = smallButton("☝ Táctil / Mouse", BLUE);
+        Button keysMode = smallButton("Flechas + OK", PANEL2);
+        modes.addView(mouseMode, new LinearLayout.LayoutParams(0, dp(44), 1));
+        LinearLayout.LayoutParams keysLp = new LinearLayout.LayoutParams(0, dp(44), 1);
+        keysLp.leftMargin = dp(8);
+        modes.addView(keysMode, keysLp);
+        root.addView(modes);
+
+        TextView touchHint = text("Deslizá el dedo para mover el puntero · tocá para hacer clic", 12, false, MUTED);
+        touchHint.setGravity(Gravity.CENTER);
+        touchHint.setPadding(dp(4), dp(12), dp(4), dp(10));
+        root.addView(touchHint);
+
+        FrameLayout touchSurface = new FrameLayout(this);
+        touchSurface.setBackground(round(0xff101b2a, 0xff258cff, 18));
+        TextView touchIcon = text("✥", 42, true, 0xff8fc5ff);
+        touchIcon.setGravity(Gravity.CENTER);
+        touchSurface.addView(touchIcon, new FrameLayout.LayoutParams(-1, -1));
+        LinearLayout.LayoutParams surfaceLp = new LinearLayout.LayoutParams(-1, dp(230));
+        surfaceLp.bottomMargin = dp(12);
+        root.addView(touchSurface, surfaceLp);
+        touchSurface.setOnTouchListener((view, event) -> handleMousePad(event, view));
+
+        LinearLayout dpadPanel = column();
+        dpadPanel.setGravity(Gravity.CENTER);
+        dpadPanel.setPadding(0, dp(5), 0, dp(5));
         LinearLayout padCol = column();
         padCol.setGravity(Gravity.CENTER);
         addKeyButton(padCol, "▲", 19);
         LinearLayout middle = new LinearLayout(this);
         middle.setGravity(Gravity.CENTER);
         addKeyButton(middle, "◀", 21);
-        addKeyButton(middle, "●", 23);
+        addKeyButton(middle, "OK", 23);
         addKeyButton(middle, "▶", 22);
         padCol.addView(middle);
         addKeyButton(padCol, "▼", 20);
-        dpad.addView(padCol);
-        root.addView(dpad);
+        dpadPanel.addView(padCol);
+        LinearLayout nav = new LinearLayout(this);
+        nav.setGravity(Gravity.CENTER);
+        addKeyButton(nav, "Atrás", 4);
+        addKeyButton(nav, "Inicio", 3);
+        addKeyButton(nav, "Recientes", 187);
+        dpadPanel.addView(nav);
+        root.addView(dpadPanel);
 
+        Runnable updateMode = () -> {
+            touchSurface.setVisibility(touchpadMode ? View.VISIBLE : View.GONE);
+            touchHint.setVisibility(touchpadMode ? View.VISIBLE : View.GONE);
+            dpadPanel.setVisibility(touchpadMode ? View.GONE : View.VISIBLE);
+            mouseMode.setBackgroundTintList(android.content.res.ColorStateList.valueOf(touchpadMode ? BLUE : PANEL2));
+            keysMode.setBackgroundTintList(android.content.res.ColorStateList.valueOf(touchpadMode ? PANEL2 : BLUE));
+            if (remoteStatus != null) remoteStatus.setText(touchpadMode
+                ? "Mouse táctil activo · el TV Box recibe movimientos de mouse por ADB."
+                : "Modo de flechas activo · usá ▲ ▼ ◀ ▶ y OK.");
+        };
+        mouseMode.setOnClickListener(v -> { touchpadMode = true; updateMode.run(); });
+        keysMode.setOnClickListener(v -> { touchpadMode = false; updateMode.run(); });
+        updateMode.run();
         setContentView(root);
-        captureNow();
+    }
+
+    private long lastMouseMoveAt = 0;
+    private float mouseDownX, mouseDownY, mouseLastX, mouseLastY;
+    private boolean mouseMoved = false;
+
+    private boolean handleMousePad(MotionEvent event, View surface) {
+        if (!touchpadMode) return true;
+        final int maxX = 1919, maxY = 1079;
+        int x = Math.max(0, Math.min(maxX, Math.round(event.getX() / Math.max(1f, surface.getWidth()) * maxX)));
+        int y = Math.max(0, Math.min(maxY, Math.round(event.getY() / Math.max(1f, surface.getHeight()) * maxY)));
+        if (event.getAction() == MotionEvent.ACTION_DOWN) {
+            mouseDownX = mouseLastX = event.getX();
+            mouseDownY = mouseLastY = event.getY();
+            mouseMoved = false;
+            lastMouseMoveAt = 0;
+            return true;
+        }
+        if (event.getAction() == MotionEvent.ACTION_MOVE) {
+            float dx = event.getX() - mouseLastX;
+            float dy = event.getY() - mouseLastY;
+            if (Math.abs(event.getX() - mouseDownX) + Math.abs(event.getY() - mouseDownY) > dp(7)) mouseMoved = true;
+            long now = android.os.SystemClock.uptimeMillis();
+            if (mouseMoved && now - lastMouseMoveAt >= 70) {
+                int sx = Math.max(0, Math.min(maxX, Math.round(mouseLastX / Math.max(1f, surface.getWidth()) * maxX)));
+                int sy = Math.max(0, Math.min(maxY, Math.round(mouseLastY / Math.max(1f, surface.getHeight()) * maxY)));
+                sendAdb((h,p) -> adb.mouseSwipe(h,p,sx,sy,x,y,65));
+                lastMouseMoveAt = now;
+            }
+            mouseLastX = event.getX();
+            mouseLastY = event.getY();
+            return true;
+        }
+        if (event.getAction() == MotionEvent.ACTION_UP) {
+            if (!mouseMoved) sendAdb((h,p) -> adb.mouseTap(h,p,x,y));
+            return true;
+        }
+        return true;
     }
 
     private boolean handleScreenTouch(MotionEvent event) {
