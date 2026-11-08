@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <unistd.h>
 
 static int fd = -1;
@@ -32,9 +33,12 @@ static int create_mouse(void) {
     if (ioctl(fd, UI_SET_EVBIT, EV_SYN) < 0 ||
         ioctl(fd, UI_SET_EVBIT, EV_KEY) < 0 ||
         ioctl(fd, UI_SET_EVBIT, EV_REL) < 0 ||
-        ioctl(fd, UI_SET_KEYBIT, BTN_LEFT) < 0 ||
+        ioctl(fd, UI_SET_KEYBIT, BTN_MOUSE) < 0 ||
         ioctl(fd, UI_SET_RELBIT, REL_X) < 0 ||
         ioctl(fd, UI_SET_RELBIT, REL_Y) < 0) return -2;
+    ioctl(fd, UI_SET_KEYBIT, BTN_RIGHT);
+    ioctl(fd, UI_SET_KEYBIT, BTN_MIDDLE);
+    ioctl(fd, UI_SET_PROPBIT, INPUT_PROP_POINTER);
     struct uinput_user_dev dev;
     memset(&dev, 0, sizeof(dev));
     snprintf(dev.name, UINPUT_MAX_NAME_SIZE, "PG Control Virtual Mouse");
@@ -64,8 +68,8 @@ int main(void) {
             if (delta[1]) emit(EV_REL, REL_Y, delta[1]);
             sync_events();
         } else if (cmd == 2) {
-            emit(EV_KEY, BTN_LEFT, 1); sync_events();
-            emit(EV_KEY, BTN_LEFT, 0); sync_events();
+            emit(EV_KEY, BTN_MOUSE, 1); sync_events();
+            emit(EV_KEY, BTN_MOUSE, 0); sync_events();
         }
     }
     ioctl(fd, UI_DEV_DESTROY);
