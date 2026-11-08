@@ -398,12 +398,16 @@ public class MainActivity extends Activity {
         remoteStatus.setPadding(dp(4), dp(4), dp(4), dp(7));
         root.addView(remoteStatus);
 
-        // The old screen-preview area is replaced only by the touchpad / D-pad area.
+        // Centro: touchpad arriba; controles físicos separados debajo.
         FrameLayout controlFrame = new FrameLayout(this);
         controlFrame.setBackground(round(PANEL, 0xff34465c, 12));
         LinearLayout.LayoutParams controlLp = new LinearLayout.LayoutParams(-1, 0, 1f);
         controlLp.bottomMargin = dp(9);
         root.addView(controlFrame, controlLp);
+
+        LinearLayout touchModePanel = column();
+        touchModePanel.setPadding(dp(7), dp(7), dp(7), dp(7));
+        controlFrame.addView(touchModePanel, new FrameLayout.LayoutParams(-1, -1));
 
         LinearLayout touchSurface = column();
         touchSurface.setGravity(Gravity.CENTER);
@@ -415,8 +419,22 @@ public class MainActivity extends Activity {
         touchLabel.setGravity(Gravity.CENTER);
         touchLabel.setPadding(0, dp(12), 0, 0);
         touchSurface.addView(touchLabel);
-        controlFrame.addView(touchSurface, new FrameLayout.LayoutParams(-1, -1));
+        LinearLayout.LayoutParams touchLp = new LinearLayout.LayoutParams(-1, 0, 1f);
+        touchLp.bottomMargin = dp(8);
+        touchModePanel.addView(touchSurface, touchLp);
         touchSurface.setOnTouchListener((view, event) -> handleMousePad(event, view));
+
+        LinearLayout mouseButtons = new LinearLayout(this);
+        mouseButtons.setGravity(Gravity.CENTER_VERTICAL);
+        Button backKey = smallButton("‹  ATRÁS", PANEL2);
+        backKey.setOnClickListener(v -> sendKey(4));
+        mouseButtons.addView(backKey, new LinearLayout.LayoutParams(0, dp(46), 1));
+        Button leftClick = smallButton("●  CLIC", BLUE);
+        leftClick.setOnClickListener(v -> sendMouseClick());
+        LinearLayout.LayoutParams clickLp = new LinearLayout.LayoutParams(0, dp(46), 1);
+        clickLp.leftMargin = dp(9);
+        mouseButtons.addView(leftClick, clickLp);
+        touchModePanel.addView(mouseButtons);
 
         LinearLayout dpadPanel = column();
         dpadPanel.setGravity(Gravity.CENTER);
@@ -438,18 +456,18 @@ public class MainActivity extends Activity {
         controlFrame.addView(dpadPanel, new FrameLayout.LayoutParams(-1, -1));
         dpadPanel.setVisibility(View.GONE);
 
-        // Original position: mode switch and Multitarea stay together below the center panel.
+        // Selector y Multitarea conservan su fila y ubicación original.
         LinearLayout modeRow = new LinearLayout(this);
         modeRow.setGravity(Gravity.CENTER_VERTICAL);
         Button mode = smallButton("Modo: Táctil / Mouse", BLUE);
         mode.setOnClickListener(v -> {
             touchpadMode = !touchpadMode;
-            touchSurface.setVisibility(touchpadMode ? View.VISIBLE : View.GONE);
+            touchModePanel.setVisibility(touchpadMode ? View.VISIBLE : View.GONE);
             dpadPanel.setVisibility(touchpadMode ? View.GONE : View.VISIBLE);
             mode.setText(touchpadMode ? "Modo: Táctil / Mouse" : "Modo: Flechas + OK");
             mode.setBackgroundTintList(android.content.res.ColorStateList.valueOf(touchpadMode ? BLUE : PANEL2));
             if (remoteStatus != null) remoteStatus.setText(touchpadMode
-                ? "Touchpad activo · deslizá para mover y tocá para hacer clic."
+                ? "Touchpad activo · deslizá para mover y usá los botones inferiores."
                 : "Flechas activas · ▲ ▼ ◀ ▶ y OK.");
         });
         modeRow.addView(mode, new LinearLayout.LayoutParams(0, dp(42), 1));
@@ -462,7 +480,6 @@ public class MainActivity extends Activity {
 
         LinearLayout nav = new LinearLayout(this);
         nav.setGravity(Gravity.CENTER);
-        addKeyButton(nav, "Atrás", 4);
         addKeyButton(nav, "Inicio", 3);
         addKeyButton(nav, "Recientes", 187);
         root.addView(nav);
@@ -470,6 +487,7 @@ public class MainActivity extends Activity {
         setContentView(root);
     }
 
+    private int lastMouseX = 960, lastMouseY = 540;
     private long lastMouseMoveAt = 0;
     private float mouseDownX, mouseDownY, mouseLastX, mouseLastY;
     private boolean mouseMoved = false;
@@ -479,6 +497,8 @@ public class MainActivity extends Activity {
         final int maxX = 1919, maxY = 1079;
         int x = Math.max(0, Math.min(maxX, Math.round(event.getX() / Math.max(1f, surface.getWidth()) * maxX)));
         int y = Math.max(0, Math.min(maxY, Math.round(event.getY() / Math.max(1f, surface.getHeight()) * maxY)));
+        lastMouseX = x;
+        lastMouseY = y;
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
             mouseDownX = mouseLastX = event.getX();
             mouseDownY = mouseLastY = event.getY();
@@ -506,6 +526,11 @@ public class MainActivity extends Activity {
             return true;
         }
         return true;
+    }
+
+    private void sendMouseClick() {
+        final int x = lastMouseX, y = lastMouseY;
+        sendAdb((h,p) -> adb.mouseTap(h,p,x,y));
     }
 
     private boolean handleScreenTouch(MotionEvent event) {
