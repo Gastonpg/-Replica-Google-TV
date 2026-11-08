@@ -159,6 +159,15 @@ public final class AdbBridge {
         nativeMouseStream.write(packet);
     }
 
+    /** Send Android DPAD events through the persistent virtual input device. */
+    public synchronized void nativeMouseKey(int androidKeyCode) throws Exception {
+        if (nativeMouseStream == null || nativeMouseStream.isClosed())
+            throw new IOException("El dispositivo virtual no está iniciado.");
+        if (androidKeyCode != 19 && androidKeyCode != 20 && androidKeyCode != 21 && androidKeyCode != 22)
+            throw new IOException("Tecla direccional no válida.");
+        nativeMouseStream.write(new byte[]{4, (byte) androidKeyCode});
+    }
+
     public synchronized void nativeMouseClick() throws Exception {
         if (nativeMouseStream == null || nativeMouseStream.isClosed())
             throw new IOException("El mouse virtual no está iniciado.");
