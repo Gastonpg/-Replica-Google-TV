@@ -474,6 +474,7 @@ public class MainActivity extends Activity {
 
     private final AtomicBoolean mouseMoveRunning = new AtomicBoolean(false);
     private final ExecutorService mouseIo = Executors.newSingleThreadExecutor();
+    private final ExecutorService keyIo = Executors.newSingleThreadExecutor();
     private float mouseDownX, mouseDownY, mouseLastX, mouseLastY;
     private boolean mouseMoved = false;
     private volatile boolean nativeMouseReady = false;
@@ -636,6 +637,15 @@ public class MainActivity extends Activity {
     }
 
     private void sendKey(int code) {
+        if (code >= 19 && code <= 22 && nativeMouseReady) {
+            keyIo.execute(() -> {
+                try { adb.nativeMouseKey(code); }
+                catch (Exception e) {
+                    runOnUiThread(() -> { if (remoteStatus != null) remoteStatus.setText("Tecla direccional: " + shortError(e)); });
+                }
+            });
+            return;
+        }
         sendAdb((h,p) -> adb.key(h,p,code));
     }
 
@@ -895,5 +905,6 @@ public class MainActivity extends Activity {
         if (previewAdb != null) previewAdb.close();
         io.shutdownNow();
         previewIo.shutdownNow();
+        keyIo.shutdownNow();
     }
 }
