@@ -427,58 +427,39 @@ public class MainActivity extends Activity {
         touchModePanel.addView(touchSurface, touchLp);
         touchSurface.setOnTouchListener((view, event) -> handleMousePad(event, view));
 
+        // Una sola fila inferior: Atrás a la izquierda y cruceta completa a la derecha.
         LinearLayout mouseButtons = new LinearLayout(this);
         mouseButtons.setGravity(Gravity.CENTER_VERTICAL);
         Button backKey = smallButton("‹  ATRÁS", PANEL2);
         backKey.setOnClickListener(v -> sendKey(4));
-        mouseButtons.addView(backKey, new LinearLayout.LayoutParams(0, dp(46), 1));
-        Button leftClick = smallButton("●  CLIC", BLUE);
-        leftClick.setOnClickListener(v -> sendMouseClick());
-        LinearLayout.LayoutParams clickLp = new LinearLayout.LayoutParams(0, dp(46), 1);
-        clickLp.leftMargin = dp(9);
-        mouseButtons.addView(leftClick, clickLp);
+        LinearLayout.LayoutParams backLp = new LinearLayout.LayoutParams(0, dp(46), 4f);
+        backLp.rightMargin = dp(8);
+        mouseButtons.addView(backKey, backLp);
+
+        LinearLayout arrows = column();
+        arrows.setGravity(Gravity.CENTER);
+        LinearLayout arrowTop = new LinearLayout(this);
+        arrowTop.setGravity(Gravity.CENTER);
+        addDirectionalButton(arrowTop, "▲", 19);
+        arrows.addView(arrowTop);
+        LinearLayout arrowMiddle = new LinearLayout(this);
+        arrowMiddle.setGravity(Gravity.CENTER);
+        addDirectionalButton(arrowMiddle, "◀", 21);
+        addDirectionalButton(arrowMiddle, "▶", 22);
+        arrows.addView(arrowMiddle);
+        LinearLayout arrowBottom = new LinearLayout(this);
+        arrowBottom.setGravity(Gravity.CENTER);
+        addDirectionalButton(arrowBottom, "▼", 20);
+        arrows.addView(arrowBottom);
+        mouseButtons.addView(arrows, new LinearLayout.LayoutParams(0, dp(112), 6f));
         touchModePanel.addView(mouseButtons);
 
-        LinearLayout dpadPanel = column();
-        dpadPanel.setGravity(Gravity.CENTER);
-        TextView dpadHint = text("NAVEGACIÓN CON FLECHAS", 12, true, MUTED);
-        dpadHint.setGravity(Gravity.CENTER);
-        dpadHint.setPadding(0, 0, 0, dp(12));
-        dpadPanel.addView(dpadHint);
-        LinearLayout padCol = column();
-        padCol.setGravity(Gravity.CENTER);
-        addKeyButton(padCol, "▲", 19);
-        LinearLayout middle = new LinearLayout(this);
-        middle.setGravity(Gravity.CENTER);
-        addKeyButton(middle, "◀", 21);
-        addKeyButton(middle, "OK", 23);
-        addKeyButton(middle, "▶", 22);
-        padCol.addView(middle);
-        addKeyButton(padCol, "▼", 20);
-        dpadPanel.addView(padCol);
-        controlFrame.addView(dpadPanel, new FrameLayout.LayoutParams(-1, -1));
-        dpadPanel.setVisibility(View.GONE);
-
-        // Selector y Multitarea conservan su fila y ubicación original.
+        // El modo Flechas/OK se elimina: el touchpad queda siempre activo y tocarlo hace clic.
         LinearLayout modeRow = new LinearLayout(this);
         modeRow.setGravity(Gravity.CENTER_VERTICAL);
-        Button mode = smallButton("Modo: Táctil / Mouse", BLUE);
-        mode.setOnClickListener(v -> {
-            touchpadMode = !touchpadMode;
-            touchModePanel.setVisibility(touchpadMode ? View.VISIBLE : View.GONE);
-            dpadPanel.setVisibility(touchpadMode ? View.GONE : View.VISIBLE);
-            mode.setText(touchpadMode ? "Modo: Táctil / Mouse" : "Modo: Flechas + OK");
-            mode.setBackgroundTintList(android.content.res.ColorStateList.valueOf(touchpadMode ? BLUE : PANEL2));
-            if (remoteStatus != null) remoteStatus.setText(touchpadMode
-                ? "Touchpad activo · deslizá para mover y usá los botones inferiores."
-                : "Flechas activas · ▲ ▼ ◀ ▶ y OK.");
-        });
-        modeRow.addView(mode, new LinearLayout.LayoutParams(0, dp(42), 1));
         Button tasks = smallButton("Multitarea", BLUE);
         tasks.setOnClickListener(v -> showTasksDialog());
-        LinearLayout.LayoutParams taskLp = new LinearLayout.LayoutParams(0, dp(42), 1);
-        taskLp.leftMargin = dp(8);
-        modeRow.addView(tasks, taskLp);
+        modeRow.addView(tasks, new LinearLayout.LayoutParams(-1, dp(42)));
         root.addView(modeRow);
 
         LinearLayout nav = new LinearLayout(this);
@@ -635,6 +616,15 @@ public class MainActivity extends Activity {
         int sx = Math.round((x - left) / scale);
         int sy = Math.round((y - top) / scale);
         return new int[]{Math.max(0, Math.min(bw - 1, sx)), Math.max(0, Math.min(bh - 1, sy))};
+    }
+
+    private void addDirectionalButton(LinearLayout parent, String label, int keyCode) {
+        Button b = smallButton(label, PANEL2);
+        b.setTextSize(17);
+        b.setOnClickListener(v -> sendKey(keyCode));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(48), dp(34));
+        lp.setMargins(dp(3), dp(1), dp(3), dp(1));
+        parent.addView(b, lp);
     }
 
     private void addKeyButton(LinearLayout parent, String label, int keyCode) {
