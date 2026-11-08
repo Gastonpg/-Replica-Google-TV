@@ -22,6 +22,7 @@ public final class AdbBridge {
     private AdbConnection connection;
     private String connectedHost;
     private int connectedPort;
+    private AdbStream nativeMouseStream;
 
     public AdbBridge(Context context) {
         this.context = context.getApplicationContext();
@@ -121,6 +122,64 @@ public final class AdbBridge {
         shell(host, port, "su 0 input mouse tap " + Math.max(0, x) + " " + Math.max(0, y));
     }
 
+    /** Deploy and start the persistent root uinput mouse process on the TV Box. */
+    public synchronized void startNativeMouse(String host, int port, byte[] executable) throws Exception {
+        ensureConnected(host, port);
+        if (nativeMouseStream != null && !nativeMouseStream.isClosed()) return;
+        shell(host, port, "su 0 rm -f /data/local/tmp/pgmouse.b64 /data/local/tmp/pgmouse");
+        String encoded = Base64.encodeToString(executable, Base64.NO_WRAP);
+        for (int offset = 0; offset < encoded.length(); offset += 1800) {
+            String chunk = encoded.substring(offset, Math.min(encoded.length(), offset + 1800));
+            shell(host, port, "su 0 sh -c 'printf %s " + chunk + " >> /data/local/tmp/pgmouse.b64'");
+        }
+        shell(host, port, "su 0 sh -c 'base64 -d /data/local/tmp/pgmouse.b64 > /data/local/tmp/pgmouse && chmod 755 /data/local/tmp/pgmouse && rm -f /data/local/tmp/pgmouse.b64'");
+        AdbStream stream = connection.open("shell:su 0 /data/local/tmp/pgmouse");
+        StringBuilder ready = new StringBuilder();
+        long deadline = System.currentTimeMillis() + 12000;
+        while (System.currentTimeMillis() < deadline && ready.indexOf("READY") < 0) {
+            byte[] part = stream.read();
+            if (part == null) break;
+            ready.append(new String(part, "UTF-8"));
+        }
+        if (ready.indexOf("READY") < 0) {
+            try { stream.close(); } catch (Exception ignored) { }
+            throw new IOException("El mouse virtual no pudo iniciar /dev/uinput: " + ready.toString().trim());
+        }
+        nativeMouseStream = stream;
+    }
+
+    /** Send a relative movement packet over the already-open ADB shell stream. */
+    public synchronized void nativeMouseMove(int dx, int dy) throws Exception {
+        if (nativeMouseStream == null || nativeMouseStream.isClosed())
+            throw new IOException("El mouse virtual no está iniciado.");
+        byte[] packet = new byte[9];
+        packet[0] = 1;
+        putInt32(packet, 1, dx);
+        putInt32(packet, 5, dy);
+        nativeMouseStream.write(packet);
+    }
+
+    public synchronized void nativeMouseClick() throws Exception {
+        if (nativeMouseStream == null || nativeMouseStream.isClosed())
+            throw new IOException("El mouse virtual no está iniciado.");
+        nativeMouseStream.write(new byte[]{2});
+    }
+
+    private static void putInt32(byte[] data, int offset, int value) {
+        data[offset] = (byte) value;
+        data[offset + 1] = (byte) (value >>> 8);
+        data[offset + 2] = (byte) (value >>> 16);
+        data[offset + 3] = (byte) (value >>> 24);
+    }
+
+    public synchronized void stopNativeMouse() {
+        if (nativeMouseStream != null) {
+            try { if (!nativeMouseStream.isClosed()) nativeMouseStream.write(new byte[]{3}); } catch (Exception ignored) { }
+            try { nativeMouseStream.close(); } catch (Exception ignored) { }
+        }
+        nativeMouseStream = null;
+    }
+
     public synchronized void mouseSwipe(String host, int port, int x1, int y1, int x2, int y2, int duration) throws Exception {
         shell(host, port, "su 0 input mouse swipe " + Math.max(0, x1) + " " + Math.max(0, y1) + " " +
             Math.max(0, x2) + " " + Math.max(0, y2) + " " + Math.max(1, duration));
@@ -152,6 +211,7 @@ public final class AdbBridge {
     }
 
     public synchronized void close() {
+        stopNativeMouse();
         if (connection != null) {
             try { connection.close(); } catch (Exception ignored) { }
         }
