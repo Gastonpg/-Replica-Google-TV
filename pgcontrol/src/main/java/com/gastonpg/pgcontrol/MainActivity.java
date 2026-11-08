@@ -531,8 +531,12 @@ public class MainActivity extends Activity {
                 previewOptions.inSampleSize = 3;
                 previewOptions.inPreferredConfig = Bitmap.Config.RGB_565;
                 previewOptions.inDither = false;
-                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, previewOptions);
-                if (bitmap == null) throw new Exception("No se pudo decodificar la captura.");
+                Bitmap decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, previewOptions);
+                if (decoded == null) throw new Exception("No se pudo decodificar la captura.");
+                // Android decoders may round inSampleSize=3 down to 2; normalize the preview to 640x360.
+                Bitmap bitmap = (decoded.getWidth() == 640 && decoded.getHeight() == 360)
+                    ? decoded : Bitmap.createScaledBitmap(decoded, 640, 360, false);
+                if (bitmap != decoded) decoded.recycle();
                 runOnUiThread(() -> {
                     if (!remoteVisible || screenPreview == null) { bitmap.recycle(); return; }
                     Bitmap old = currentScreen;
