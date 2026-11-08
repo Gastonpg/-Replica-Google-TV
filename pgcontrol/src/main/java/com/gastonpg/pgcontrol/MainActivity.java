@@ -1,253 +1,442 @@
 package com.gastonpg.pgcontrol;
 
 import android.app.Activity;
-import android.content.Intent;
+import android.os.Bundle;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
-import android.net.Uri;
-import android.os.Bundle;
 import android.util.Base64;
+import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.*;
-import org.json.*;
-import java.io.*;
-import java.net.*;
+import android.content.Context;
+import android.graphics.drawable.GradientDrawable;
+
+import com.tananaev.adblib.AdbBase64;
+import com.tananaev.adblib.AdbConnection;
+import com.tananaev.adblib.AdbCrypto;
+import com.tananaev.adblib.AdbStream;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.Socket;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class MainActivity extends Activity {
-    EditText address, token;
-    TextView status;
-    ProgressBar bannerProgress;
-    LinearLayout appList;
-    final ExecutorService io = Executors.newSingleThreadExecutor();
-    final ExecutorService imageWorker = Executors.newSingleThreadExecutor();
-    String pendingPackage = "", pendingIcon = "", pendingBanner = "";
-    JSONArray installedApps = new JSONArray();
+    private EditText hostField, portField;
+    private TextView status, appsSummary, sizeValue;
+    private ImageView preview;
+    private SeekBar sizeSlider;
+    private LinearLayout appNames;
+    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final ExecutorService adbWorker = Executors.newSingleThreadExecutor();
+    private String authToken = "";
+    private int screenWidth = 1920, screenHeight = 1080;
+    private float downX, downY;
+    private boolean moved;
+    private static final String PREFS = "pg_control_v2";
+    private static final String LAUNCHER_PREF = "pg_launcher_preferences";
+    private static final String TOKEN_PATH = "/data/data/com.gastonpg.replicagoogletv.bannereditor/shared_prefs/pg_control_connection.xml";
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        LinearLayout root = new LinearLayout(this); root.setOrientation(1); root.setPadding(18,18,18,18); root.setBackgroundColor(0xff0b1120);
-        ScrollView scroll = new ScrollView(this); LinearLayout page = new LinearLayout(this); page.setOrientation(1);
-        TextView title = text("PG CONTROL",25,true); page.addView(title);
-        address = new EditText(this); address.setSingleLine(); address.setText(getPreferences(0).getString("address","")); address.setHint("http://192.168.x.x:8765"); page.addView(address);
-        token = new EditText(this); token.setSingleLine(); token.setInputType(129); token.setText(getPreferences(0).getString("token","")); token.setHint("Token del TV Box"); page.addView(token);
-        Button connect = button("Conectar con Google TV PG"); page.addView(connect); connect.setOnClickListener(v->connect());
-        status = text("El celular y el TV Box deben estar en la misma Wi-Fi.",13,false); page.addView(status);
-        bannerProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal); bannerProgress.setIndeterminate(true); bannerProgress.setVisibility(View.GONE); page.addView(bannerProgress);
-        page.addView(text("Distribución de aplicaciones",16,true));
-        LinearLayout layouts = new LinearLayout(this);
-        String[] names={"Fila","Cuadrícula","Categorías ↔","Categorías ▦"};
-        String[] values={"horizontal","grid","category_rows","category_grid"};
-        for(int i=0;i<names.length;i++){final String value=values[i];Button b=button(names[i]);b.setTextSize(10);layouts.addView(b,new LinearLayout.LayoutParams(0,-2,1));b.setOnClickListener(v->applyLayout(value));}
-        page.addView(layouts);
-        appList = new LinearLayout(this); appList.setOrientation(1); page.addView(appList);
-        scroll.addView(page); root.addView(scroll); setContentView(root);
+        getWindow().setStatusBarColor(Color.rgb(7, 11, 19));
+        getWindow().setNavigationBarColor(Color.rgb(7, 11, 19));
+        buildUi();
     }
 
-    void connect() {
-        String a=address.getText().toString().trim().replaceAll("/+$","");
-        String t=token.getText().toString().trim();
-        getPreferences(0).edit().putString("address",a).putString("token",t).apply();
-        status.setText("Conectando…");
-        request("GET","/v1/device",null,r->{status.setText("Conectado a "+r.optString("launcher","Google TV PG")+" · "+r.optString("model"));loadApps();});
-    }
+    private void buildUi() {
+        int pad = dp(16);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(pad, pad, pad, pad);
+        root.setBackgroundColor(Color.rgb(7, 11, 19));
 
-    void applyLayout(String layout) {
-        try { JSONObject o=new JSONObject();o.put("layout",layout);
-            request("POST","/v1/launcher/layout",o,r->status.setText("Distribución guardada: "+layout));
-        } catch(Exception e){status.setText("No se pudo preparar el cambio.");}
-    }
+        ScrollView scroll = new ScrollView(this);
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(page);
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
-    void loadApps() {
-        request("GET","/v1/launcher/app-configs",null,cfg->
-            request("GET","/v1/packages",null,data->{
-                appList.removeAllViews(); JSONArray apps=data.optJSONArray("apps"); JSONObject all=cfg.optJSONObject("configs");
-                if(apps==null)return;
-                installedApps = apps;
-                for(int i=0;i<apps.length();i++){
-                    JSONObject item=apps.optJSONObject(i);if(item==null)continue;
-                    String pkg=item.optString("packageName");
-                    addEditor(pkg,item.optString("label",pkg),all==null?null:all.optJSONObject(pkg));
-                }
-                status.setText("Conectado · "+apps.length()+" aplicaciones detectadas");
-            })
-        );
-    }
+        TextView title = label("PG CONTROL", 25, true);
+        title.setLetterSpacing(0.08f);
+        page.addView(title);
+        page.addView(label("Réplica Google TV · Control remoto", 13, false));
 
-    void addEditor(String pkg,String defaultLabel,JSONObject cfg) {
-        if(cfg==null)cfg=new JSONObject();
-        LinearLayout card=new LinearLayout(this);card.setOrientation(1);card.setPadding(12,10,12,10);card.setBackgroundColor(0xff1b2940);
-        LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);cp.bottomMargin=12;appList.addView(card,cp);
-        card.addView(text(defaultLabel,16,true));card.addView(text(pkg,10,false));
-        EditText label=field("Nombre visible",cfg.optString("label",defaultLabel));card.addView(label);
-        EditText category=field("Categoría (vacío = automática)",cfg.optString("category",""));card.addView(category);
-        LinearLayout dims=new LinearLayout(this);
-        EditText width=number("Ancho dp",cfg.optInt("cardWidthDp",196));
-        EditText height=number("Alto dp",cfg.optInt("cardHeightDp",110));
-        dims.addView(width,new LinearLayout.LayoutParams(0,-2,1));dims.addView(height,new LinearLayout.LayoutParams(0,-2,1));card.addView(dims);
-        LinearLayout presets=new LinearLayout(this);
-        int[][] sizes={{140,80},{170,96},{196,110},{230,130},{280,150}};
-        String[] presetNames={"XS","S","M","L","XL"};
-        for(int i=0;i<sizes.length;i++){final int j=i;Button b=button(presetNames[i]);b.setTextSize(10);presets.addView(b,new LinearLayout.LayoutParams(0,-2,1));b.setOnClickListener(v->{width.setText(""+sizes[j][0]);height.setText(""+sizes[j][1]);});}
-        card.addView(presets);
-        Spinner style=new Spinner(this);String[] styles={"Glass","Sólida","Contorno","Minimal"};style.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,styles));
-        String savedStyle=cfg.optString("cardStyle","glass");style.setSelection(savedStyle.equals("solid")?1:savedStyle.equals("outline")?2:savedStyle.equals("minimal")?3:0);card.addView(style);
-        Spinner radius=new Spinner(this);String[] radii={"Recta","Suave","Redonda","Píldora"};radius.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,radii));
-        int rv=cfg.optInt("cardRadiusDp",16);radius.setSelection(rv==0?0:rv==8?1:rv==28?3:2);card.addView(radius);
-        EditText order=number("Orden (0 primero)",cfg.optInt("order",10000));card.addView(order);
-        CheckBox hidden=new CheckBox(this);hidden.setTextColor(Color.WHITE);hidden.setText("Ocultar esta aplicación");hidden.setChecked(cfg.optBoolean("hidden",false));card.addView(hidden);
-        Button original=button("Usar / restaurar icono original de la app");card.addView(original);
-        original.setOnClickListener(v->new android.app.AlertDialog.Builder(this)
-            .setTitle("Icono original")
-            .setMessage("Se quitará la imagen personalizada y el launcher volverá a usar el icono incluido en la aplicación instalada.")
-            .setNegativeButton("Cancelar",null)
-            .setPositiveButton("Restaurar",(d,w)->{
-                try { JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("restoreOriginalIcon",true);
-                    request("POST","/v1/launcher/app-config",o,r->{status.setText("Icono original restaurado: "+defaultLabel);if(pkg.equals(pendingPackage))pendingIcon="";});
-                } catch(Exception e){status.setText("No se pudo restaurar el icono.");}
-            }).show());
-        Button copyDefault=button("Usar icono original de otra aplicación");card.addView(copyDefault);
-        copyDefault.setOnClickListener(v->chooseDefaultIconSource(pkg,defaultLabel));
-        Button choose=button("Subir imagen personalizada");card.addView(choose);
-        choose.setOnClickListener(v->{pendingPackage=pkg;Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("image/*");startActivityForResult(i,44);});
-        TextView bannerTitle=text("PG BANNER STUDIO · BANNERS LEANBACK",14,true);card.addView(bannerTitle);
-        TextView bannerHelp=text("Importá una imagen de Gemini. Se recorta al centro y se convierte a PNG 320 × 180, sin pedirle a Gemini una resolución específica.",11,false);card.addView(bannerHelp);
-        Button chooseBanner=button("Importar y convertir imagen para banner");card.addView(chooseBanner);
-        chooseBanner.setOnClickListener(v->{pendingPackage=pkg;pendingBanner="";status.setText("Elegí una imagen para "+defaultLabel+".");Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("image/*");startActivityForResult(i,45);});
-        Button applyBanner=button("Aplicar banner Leanback");card.addView(applyBanner);
-        applyBanner.setOnClickListener(v->{if(!pkg.equals(pendingPackage)||pendingBanner.isEmpty()){status.setText("Primero importá una imagen en PG Banner Studio para esta aplicación.");return;}
-            try{JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("bannerBase64",pendingBanner);bannerProgress.setVisibility(View.VISIBLE);status.setText("Enviando banner al TV Box y guardando archivo…");request("POST","/v1/launcher/app-config",o,r->{bannerProgress.setVisibility(View.GONE);status.setText("Banner aplicado a "+defaultLabel+". El launcher ya puede mostrarlo.");pendingBanner="";});}catch(Exception e){bannerProgress.setVisibility(View.GONE);status.setText("Error preparando el banner: "+e.getMessage());}});
-        Button copyBannerDeclaration=button("Copiar declaración Android TV");card.addView(copyBannerDeclaration);
-        copyBannerDeclaration.setOnClickListener(v->{
-            String declaration = "<application\n    android:banner=\"@drawable/tv_banner\">\n    <!-- Para una actividad concreta también podés usar: -->\n    <activity\n        android:name=\".MainActivity\"\n        android:banner=\"@drawable/tv_banner\" />\n</application>";
-            android.content.ClipboardManager clipboard=(android.content.ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
-            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Declaración Leanback",declaration));
-            status.setText("Declaración copiada. Colocá el PNG en res/drawable-nodpi/tv_banner.png y agregá android:banner al Manifest del APK fuente.");
+        LinearLayout connection = panel();
+        connection.addView(label("CONEXIÓN ADB", 13, true));
+        hostField = edit("IP del TV Box", getPreferences(0).getString("host", "192.168.110.35"));
+        portField = edit("Puerto ADB", getPreferences(0).getString("port", "3222"));
+        connection.addView(hostField);
+        connection.addView(portField);
+        Button detect = action("DETECTAR TOKEN Y CONECTAR", true);
+        connection.addView(detect);
+        detect.setOnClickListener(v -> detectToken());
+        status = label("Conectá el POCO y el TV Box a la misma red Wi-Fi.", 12, false);
+        connection.addView(status);
+        page.addView(connection);
+
+        LinearLayout remote = panel();
+        remote.addView(label("CONTROL REMOTO", 16, true));
+        preview = new ImageView(this);
+        preview.setBackground(round(0xff111c2c, 14, 0xff315b91));
+        preview.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        preview.setAdjustViewBounds(true);
+        preview.setMinimumHeight(dp(170));
+        remote.addView(preview, new LinearLayout.LayoutParams(-1, dp(190)));
+        preview.setOnTouchListener((v, event) -> handlePreviewTouch(event));
+        Button refresh = action("ACTUALIZAR PANTALLA", false);
+        remote.addView(refresh);
+        refresh.setOnClickListener(v -> refreshScreen());
+
+        LinearLayout row1 = new LinearLayout(this);
+        row1.setGravity(Gravity.CENTER);
+        addKey(row1, "↑", "input keyevent 19");
+        remote.addView(row1);
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setGravity(Gravity.CENTER);
+        addKey(row2, "←", "input keyevent 21");
+        addKey(row2, "OK", "input keyevent 23");
+        addKey(row2, "→", "input keyevent 22");
+        remote.addView(row2);
+        LinearLayout row3 = new LinearLayout(this);
+        row3.setGravity(Gravity.CENTER);
+        addKey(row3, "↓", "input keyevent 20");
+        remote.addView(row3);
+        LinearLayout row4 = new LinearLayout(this);
+        row4.setGravity(Gravity.CENTER);
+        addKey(row4, "Atrás", "input keyevent 4");
+        addKey(row4, "Inicio", "input keyevent 3");
+        addKey(row4, "Recientes", "input keyevent 187");
+        remote.addView(row4);
+        page.addView(remote);
+
+        LinearLayout size = panel();
+        size.addView(label("TAMAÑO DE TARJETAS", 16, true));
+        size.addView(label("Ajuste gradual conservando las filas horizontales de Google TV.", 12, false));
+        sizeValue = label("196 dp", 14, true);
+        size.addView(sizeValue);
+        sizeSlider = new SeekBar(this);
+        sizeSlider.setMax(100);
+        sizeSlider.setProgress(40);
+        sizeSlider.setProgressTintList(android.content.res.ColorStateList.valueOf(0xff3185e8));
+        sizeSlider.setThumbTintList(android.content.res.ColorStateList.valueOf(0xff55a2ff));
+        sizeSlider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                int width = 140 + Math.round(progress * 1.4f);
+                sizeValue.setText(width + " dp");
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override public void onStopTrackingTouch(SeekBar seekBar) {}
         });
-        Button removeBanner=button("Quitar banner personalizado");card.addView(removeBanner);
-        removeBanner.setOnClickListener(v->{try{JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("removeCustomBanner",true);request("POST","/v1/launcher/app-config",o,r->status.setText("Banner personalizado quitado: "+defaultLabel));}catch(Exception e){status.setText("No se pudo quitar el banner.");}});
-        Button iconOnly=button("Aplicar solo el icono");card.addView(iconOnly);
-        iconOnly.setOnClickListener(v->{if(!pkg.equals(pendingPackage)||pendingIcon.isEmpty()){status.setText("Primero elegí un icono para esta aplicación.");return;}
-            try{JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("iconBase64",pendingIcon);request("POST","/v1/launcher/app-config",o,r->{status.setText("Icono aplicado a "+defaultLabel);pendingIcon="";});}catch(Exception e){status.setText("Error preparando el icono.");}});
-        Button save=button("Guardar cambios");card.addView(save);
-        save.setOnClickListener(v->{try{
-            JSONObject o=new JSONObject();o.put("packageName",pkg);o.put("label",label.getText().toString().trim());
-            o.put("category",category.getText().toString().trim());o.put("cardWidthDp",Integer.parseInt(width.getText().toString()));
-            o.put("cardHeightDp",Integer.parseInt(height.getText().toString()));o.put("order",Integer.parseInt(order.getText().toString()));o.put("hidden",hidden.isChecked());
-            String st=style.getSelectedItemPosition()==1?"solid":style.getSelectedItemPosition()==2?"outline":style.getSelectedItemPosition()==3?"minimal":"glass";
-            o.put("cardStyle",st);int[] rads={0,8,16,28};o.put("cardRadiusDp",rads[radius.getSelectedItemPosition()]);
-            if(pkg.equals(pendingPackage)&&!pendingIcon.isEmpty())o.put("iconBase64",pendingIcon);
-            request("POST","/v1/launcher/app-config",o,r->{status.setText("Configuración aplicada a "+defaultLabel);if(pkg.equals(pendingPackage))pendingIcon="";});
-        }catch(Exception e){status.setText("Revisá los valores de tamaño y orden.");}});
+        size.addView(sizeSlider);
+        Button applySize = action("APLICAR TAMAÑO EN EL LAUNCHER", true);
+        size.addView(applySize);
+        applySize.setOnClickListener(v -> applyCardSize());
+        appsSummary = label("Las aplicaciones se cargarán al conectar.", 12, false);
+        size.addView(appsSummary);
+        appNames = new LinearLayout(this);
+        appNames.setOrientation(LinearLayout.VERTICAL);
+        size.addView(appNames);
+        page.addView(size);
+
+        setContentView(root);
     }
 
-    void chooseDefaultIconSource(String targetPackage,String targetLabel) {
-        if(installedApps==null||installedApps.length()==0){status.setText("Primero conectá PG Control para cargar las aplicaciones.");return;}
-        java.util.ArrayList<String> labels=new java.util.ArrayList<>();
-        java.util.ArrayList<String> packages=new java.util.ArrayList<>();
-        for(int i=0;i<installedApps.length();i++){
-            JSONObject item=installedApps.optJSONObject(i);if(item==null)continue;
-            String sourcePkg=item.optString("packageName","");
-            if(sourcePkg.isEmpty())continue;
-            packages.add(sourcePkg);
-            labels.add(item.optString("label",sourcePkg)+"  ·  "+sourcePkg);
+    private boolean handlePreviewTouch(MotionEvent e) {
+        if (preview.getDrawable() == null || preview.getWidth() <= 0 || preview.getHeight() <= 0) return true;
+        float x = Math.max(0, Math.min(1, e.getX() / preview.getWidth()));
+        float y = Math.max(0, Math.min(1, e.getY() / preview.getHeight()));
+        if (e.getAction() == MotionEvent.ACTION_DOWN) {
+            downX = x; downY = y; moved = false; return true;
         }
-        String[] choices=labels.toArray(new String[0]);
-        new android.app.AlertDialog.Builder(this)
-            .setTitle("Elegir icono original")
-            .setMessage("Seleccioná una aplicación instalada. Su icono de fábrica se copiará como icono personalizado de "+targetLabel+".")
-            .setItems(choices,(dialog,which)->{
-                String sourcePackage=packages.get(which);
-                try{
-                    JSONObject o=new JSONObject();o.put("packageName",targetPackage);o.put("copyIconFromPackage",sourcePackage);
-                    status.setText("Copiando icono original de "+labels.get(which)+"…");
-                    request("POST","/v1/launcher/app-config",o,r->status.setText("Icono original copiado a "+targetLabel+"."));
-                }catch(Exception e){status.setText("No se pudo preparar la copia del icono.");}
-            }).setNegativeButton("Cancelar",null).show();
+        if (e.getAction() == MotionEvent.ACTION_MOVE) {
+            if (Math.abs(x - downX) + Math.abs(y - downY) > 0.025f) moved = true;
+            return true;
+        }
+        if (e.getAction() == MotionEvent.ACTION_UP) {
+            final float sx = downX, sy = downY, ex = x, ey = y;
+            if (moved) {
+                adbCommand("input swipe " + px(sx) + " " + py(sy) + " " + px(ex) + " " + py(ey) + " 280", false, null);
+            } else {
+                adbCommand("input tap " + px(x) + " " + py(y), false, null);
+            }
+            return true;
+        }
+        return true;
     }
 
-    @Override protected void onActivityResult(int request,int result,Intent data){
-        super.onActivityResult(request,result,data);
-        if(result!=RESULT_OK||data==null||data.getData()==null)return;
-        final android.net.Uri selected=data.getData();
-        if(request==45){
-            final String targetPackage=pendingPackage;
-            showProgress("Leyendo imagen original…");
-            status.setText("PG Banner Studio: preparando imagen…");
-            imageWorker.execute(()->{
-                Bitmap source=null,crop=null,banner=null;
-                try {
-                    BitmapFactory.Options bounds=new BitmapFactory.Options();bounds.inJustDecodeBounds=true;
-                    try(InputStream probe=getContentResolver().openInputStream(selected)){BitmapFactory.decodeStream(probe,null,bounds);}
-                    if(bounds.outWidth<=0||bounds.outHeight<=0)throw new Exception("Formato de imagen no compatible");
-                    int sample=1;
-                    while(Math.max(bounds.outWidth/sample,bounds.outHeight/sample)>2048)sample*=2;
-                    BitmapFactory.Options opts=new BitmapFactory.Options();opts.inSampleSize=sample;opts.inPreferredConfig=Bitmap.Config.ARGB_8888;
-                    runOnUiThread(()->status.setText("PG Banner Studio: decodificando imagen…"));
-                    try(InputStream input=getContentResolver().openInputStream(selected)){source=BitmapFactory.decodeStream(input,null,opts);}
-                    if(source==null)throw new Exception("No se pudo decodificar la imagen");
-                    int sw=source.getWidth(),sh=source.getHeight();float target=16f/9f;
-                    int cw=sw,ch=sh;
-                    if(sw/(float)sh>target)cw=Math.max(1,Math.round(sh*target));
-                    else ch=Math.max(1,Math.round(sw/target));
-                    crop=Bitmap.createBitmap(source,(sw-cw)/2,(sh-ch)/2,cw,ch);
-                    banner=Bitmap.createScaledBitmap(crop,320,180,true);
-                    ByteArrayOutputStream output=new ByteArrayOutputStream();
-                    if(!banner.compress(Bitmap.CompressFormat.PNG,100,output))throw new Exception("No se pudo generar el PNG");
-                    String encoded=Base64.encodeToString(output.toByteArray(),Base64.NO_WRAP);
-                    runOnUiThread(()->{
-                        pendingPackage=targetPackage;pendingBanner=encoded;dismissProgress();
-                        status.setText("Imagen convertida correctamente · PNG 320 × 180 · "+(encoded.length()/1024)+" KB. Ahora tocá Aplicar banner Leanback.");
-                    });
-                }catch(Exception e){
-                    String message=e.getMessage()==null?"Error de conversión":e.getMessage();
-                    runOnUiThread(()->{dismissProgress();status.setText("PG Banner Studio: "+message);});
-                }finally{
-                    if(banner!=null&&banner!=crop&&!banner.isRecycled())banner.recycle();
-                    if(crop!=null&&crop!=source&&!crop.isRecycled())crop.recycle();
-                    if(source!=null&&!source.isRecycled())source.recycle();
+    private int px(float x) { return Math.max(0, Math.min(screenWidth - 1, Math.round(x * screenWidth))); }
+    private int py(float y) { return Math.max(0, Math.min(screenHeight - 1, Math.round(y * screenHeight))); }
+
+    private void detectToken() {
+        final String host = hostField.getText().toString().trim();
+        final int port;
+        try { port = Integer.parseInt(portField.getText().toString().trim()); }
+        catch (Exception e) { status.setText("Revisá el puerto ADB."); return; }
+        if (host.isEmpty() || port < 1 || port > 65535) { status.setText("Revisá la IP y el puerto."); return; }
+        getPreferences(0).edit().putString("host", host).putString("port", String.valueOf(port)).apply();
+        status.setText("Conectando por ADB… Si aparece una autorización RSA en el TV Box, aceptala.");
+        adbWorker.execute(() -> {
+            try {
+                String xml = runAdb(host, port, "su 0 cat " + TOKEN_PATH, false);
+                Matcher m = Pattern.compile("<string name=\"token\">([^<]+)</string>").matcher(xml);
+                if (!m.find()) throw new Exception("No se encontró el token en las preferencias del Launcher.");
+                authToken = m.group(1).trim();
+                getPreferences(0).edit().putString("token", authToken).apply();
+                runOnUiThread(() -> {
+                    status.setText("Token detectado. Verificando conexión con el Launcher…");
+                    connectHttp();
+                });
+                String size = runAdb(host, port, "wm size", false);
+                Matcher sm = Pattern.compile("(\\d+)x(\\d+)").matcher(size);
+                if (sm.find()) { screenWidth = Integer.parseInt(sm.group(1)); screenHeight = Integer.parseInt(sm.group(2)); }
+            } catch (Exception e) {
+                String message = e.getMessage() == null ? "No se pudo conectar por ADB." : e.getMessage();
+                runOnUiThread(() -> status.setText("ADB: " + message));
+            }
+        });
+    }
+
+    private void connectHttp() {
+        String base = "http://" + hostField.getText().toString().trim() + ":8765";
+        worker.execute(() -> {
+            HttpURLConnection c = null;
+            try {
+                c = (HttpURLConnection) new URL(base + "/v1/device").openConnection();
+                c.setConnectTimeout(7000); c.setReadTimeout(10000);
+                c.setRequestProperty("Authorization", "Bearer " + authToken);
+                int code = c.getResponseCode();
+                if (code < 200 || code >= 300) throw new Exception("El Launcher respondió HTTP " + code);
+                String body = readText(c.getInputStream());
+                JSONObject device = new JSONObject(body);
+                runOnUiThread(() -> status.setText("Conectado a " + device.optString("launcher", "Google TV PG") + " · " + device.optString("model")));
+                loadApps();
+                refreshScreen();
+            } catch (Exception e) {
+                String msg = e.getMessage() == null ? "No se pudo verificar la conexión." : e.getMessage();
+                runOnUiThread(() -> status.setText("Token detectado, pero HTTP: " + msg));
+            } finally { if (c != null) c.disconnect(); }
+        });
+    }
+
+    private void loadApps() {
+        worker.execute(() -> {
+            HttpURLConnection c = null;
+            try {
+                String base = "http://" + hostField.getText().toString().trim() + ":8765/v1/packages";
+                c = (HttpURLConnection) new URL(base).openConnection();
+                c.setConnectTimeout(7000); c.setReadTimeout(10000);
+                c.setRequestProperty("Authorization", "Bearer " + authToken);
+                JSONObject data = new JSONObject(readText(c.getInputStream()));
+                JSONArray apps = data.optJSONArray("apps");
+                List<String> names = new ArrayList<>();
+                if (apps != null) for (int i=0;i<apps.length();i++) {
+                    JSONObject a = apps.optJSONObject(i);
+                    if (a != null) names.add(a.optString("label", a.optString("packageName")));
                 }
-            });
-            return;
+                runOnUiThread(() -> {
+                    appsSummary.setText(names.size() + " aplicaciones detectadas · distribución original conservada");
+                    appNames.removeAllViews();
+                    for (String name : names) appNames.addView(label("• " + name, 11, false));
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> appsSummary.setText("No se pudieron cargar las aplicaciones."));
+            } finally { if (c != null) c.disconnect(); }
+        });
+    }
+
+    private void applyCardSize() {
+        final int width = 140 + Math.round(sizeSlider.getProgress() * 1.4f);
+        final int height = Math.round(width * 9f / 16f);
+        status.setText("Aplicando " + width + " × " + height + " dp…");
+        worker.execute(() -> {
+            HttpURLConnection c = null;
+            try {
+                String base = "http://" + hostField.getText().toString().trim() + ":8765";
+                c = (HttpURLConnection) new URL(base + "/v1/packages").openConnection();
+                c.setRequestProperty("Authorization", "Bearer " + authToken);
+                JSONObject data = new JSONObject(readText(c.getInputStream()));
+                JSONArray apps = data.optJSONArray("apps");
+                if (apps == null) throw new Exception("El Launcher no devolvió aplicaciones.");
+                for (int i=0;i<apps.length();i++) {
+                    JSONObject app = apps.optJSONObject(i);
+                    if (app == null) continue;
+                    JSONObject body = new JSONObject();
+                    body.put("packageName", app.optString("packageName"));
+                    body.put("cardWidthDp", width);
+                    body.put("cardHeightDp", height);
+                    HttpURLConnection post = (HttpURLConnection) new URL(base + "/v1/launcher/app-config").openConnection();
+                    post.setRequestMethod("POST"); post.setDoOutput(true);
+                    post.setConnectTimeout(7000); post.setReadTimeout(10000);
+                    post.setRequestProperty("Authorization", "Bearer " + authToken);
+                    post.setRequestProperty("Content-Type", "application/json");
+                    try (OutputStream out = post.getOutputStream()) { out.write(body.toString().getBytes(StandardCharsets.UTF_8)); }
+                    int code = post.getResponseCode();
+                    if (code < 200 || code >= 300) throw new Exception("Error " + code + " al actualizar " + app.optString("packageName"));
+                    post.disconnect();
+                }
+                runOnUiThread(() -> status.setText("Tamaño aplicado a " + apps.length() + " aplicaciones."));
+            } catch (Exception e) {
+                String msg = e.getMessage() == null ? "No se pudo aplicar el tamaño." : e.getMessage();
+                runOnUiThread(() -> status.setText(msg));
+            } finally { if (c != null) c.disconnect(); }
+        });
+    }
+
+    private void refreshScreen() {
+        final String host = hostField.getText().toString().trim();
+        final int port;
+        try { port = Integer.parseInt(portField.getText().toString().trim()); }
+        catch (Exception e) { return; }
+        adbCommand("screencap -p", false, bytes -> {
+            Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            if (bmp != null) {
+                screenWidth = bmp.getWidth(); screenHeight = bmp.getHeight();
+                runOnUiThread(() -> preview.setImageBitmap(bmp));
+            }
+        });
+    }
+
+    private interface BytesDone { void accept(byte[] bytes); }
+
+    private void addKey(LinearLayout row, String text, String command) {
+        Button b = action(text, false);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(48), 1);
+        lp.setMargins(dp(3), dp(3), dp(3), dp(3));
+        row.addView(b, lp);
+        b.setOnClickListener(v -> adbCommand(command, false, null));
+    }
+
+    private void adbCommand(String command, boolean root, BytesDone done) {
+        final String host = hostField.getText().toString().trim();
+        final int port;
+        try { port = Integer.parseInt(portField.getText().toString().trim()); }
+        catch (Exception e) { return; }
+        adbWorker.execute(() -> {
+            try {
+                byte[] bytes = runAdbBytes(host, port, (root ? "su 0 " : "") + command);
+                if (done != null) done.accept(bytes);
+            } catch (Exception e) {
+                String msg = e.getMessage() == null ? "ADB falló." : e.getMessage();
+                runOnUiThread(() -> status.setText("ADB: " + msg));
+            }
+        });
+    }
+
+    private String runAdb(String host, int port, String command, boolean ignored) throws Exception {
+        return new String(runAdbBytes(host, port, command), StandardCharsets.UTF_8);
+    }
+
+    private byte[] runAdbBytes(String host, int port, String command) throws Exception {
+        AdbBase64 encoder = data -> Base64.encodeToString(data, Base64.NO_WRAP);
+        File priv = new File(getFilesDir(), "pg_adbkey");
+        File pub = new File(getFilesDir(), "pg_adbkey.pub");
+        AdbCrypto crypto;
+        if (priv.exists() && pub.exists()) crypto = AdbCrypto.loadAdbKeyPair(encoder, priv, pub);
+        else {
+            crypto = AdbCrypto.generateAdbKeyPair(encoder);
+            crypto.saveAdbKeyPair(priv, pub);
         }
-        if(request!=44)return;
-        try(InputStream in=getContentResolver().openInputStream(selected)){
-            Bitmap bmp=BitmapFactory.decodeStream(in);if(bmp==null)throw new Exception("invalid image");
-            float scale=Math.min(1f,256f/Math.max(bmp.getWidth(),bmp.getHeight()));
-            Bitmap small=Bitmap.createScaledBitmap(bmp,Math.max(1,(int)(bmp.getWidth()*scale)),Math.max(1,(int)(bmp.getHeight()*scale)),true);
-            ByteArrayOutputStream out=new ByteArrayOutputStream();small.compress(Bitmap.CompressFormat.PNG,100,out);
-            pendingIcon=Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP);if(small!=bmp)small.recycle();bmp.recycle();
-            status.setText("Icono seleccionado para "+pendingPackage+". Tocá Aplicar solo el icono o Guardar cambios.");
-        }catch(Exception e){status.setText("No se pudo abrir esa imagen.");}
+        Socket socket = new Socket(host, port);
+        socket.setSoTimeout(15000);
+        AdbConnection connection = null;
+        AdbStream stream = null;
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try {
+            connection = AdbConnection.create(socket, crypto);
+            if (!connection.connect(45, TimeUnit.SECONDS, false)) throw new Exception("Tiempo de espera agotado. Aceptá la clave RSA en el TV Box.");
+            stream = connection.open("shell:" + command);
+            try {
+                while (true) {
+                    byte[] part = stream.read();
+                    if (part == null || part.length == 0) break;
+                    output.write(part);
+                    if (output.size() > 12 * 1024 * 1024) throw new Exception("La respuesta ADB es demasiado grande.");
+                }
+            } catch (java.io.IOException closed) {
+                // The shell closes its stream when the command finishes.
+            }
+            return output.toByteArray();
+        } finally {
+            try { if (stream != null) stream.close(); } catch (Exception ignored) {}
+            try { if (connection != null) connection.close(); else socket.close(); } catch (Exception ignored) {}
+        }
     }
 
-    private void showProgress(String message){
-        runOnUiThread(()->{if(bannerProgress!=null)bannerProgress.setVisibility(View.VISIBLE);status.setText(message);});
-    }
-    private void dismissProgress(){
-        runOnUiThread(()->{if(bannerProgress!=null)bannerProgress.setVisibility(View.GONE);});
-    }
-
-    interface Done{void accept(JSONObject o);}
-    void request(String method,String path,JSONObject body,Done done){
-        String base=address.getText().toString().trim().replaceAll("/+$",""), key=token.getText().toString().trim();
-        io.execute(()->{HttpURLConnection c=null;try{
-            c=(HttpURLConnection)new URL(base+path).openConnection();c.setRequestMethod(method);c.setConnectTimeout(7000);c.setReadTimeout(12000);
-            c.setRequestProperty("Authorization","Bearer "+key);c.setRequestProperty("Accept","application/json");
-            if(body!=null){c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json");try(OutputStream o=c.getOutputStream()){o.write(body.toString().getBytes(StandardCharsets.UTF_8));}}
-            int code=c.getResponseCode();InputStream in=code<400?c.getInputStream():c.getErrorStream();ByteArrayOutputStream out=new ByteArrayOutputStream();
-            byte[] buf=new byte[4096];int n;while((n=in.read(buf))>0)out.write(buf,0,n);
-            JSONObject response=new JSONObject(new String(out.toByteArray(),StandardCharsets.UTF_8));
-            runOnUiThread(()->{if(code>=200&&code<300)done.accept(response);else {bannerProgress.setVisibility(View.GONE);status.setText("Error "+code+": "+response.optString("error"));}});
-        }catch(Exception e){runOnUiThread(()->{bannerProgress.setVisibility(View.GONE);status.setText("Sin conexión: "+e.getMessage());});}finally{if(c!=null)c.disconnect();}});
+    private String readText(InputStream in) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] b = new byte[4096]; int n;
+        while ((n = in.read(b)) > 0) out.write(b, 0, n);
+        in.close();
+        return new String(out.toByteArray(), StandardCharsets.UTF_8);
     }
 
-    EditText field(String hint,String value){EditText e=new EditText(this);e.setSingleLine();e.setHint(hint);e.setText(value);return e;}
-    EditText number(String hint,int value){EditText e=field(hint,String.valueOf(value));e.setInputType(2);return e;}
-    TextView text(String s,int size,boolean bold){TextView t=new TextView(this);t.setText(s);t.setTextSize(size);t.setTextColor(Color.WHITE);if(bold)t.setTypeface(null,1);return t;}
-    Button button(String s){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setTextColor(Color.WHITE);b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff315b91));return b;}
-    @Override protected void onDestroy(){super.onDestroy();io.shutdownNow();imageWorker.shutdownNow();}
+    private LinearLayout panel() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(13), dp(12), dp(13), dp(12));
+        box.setBackground(round(0xff111c2c, 16, 0xff263b59));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = dp(12);
+        box.setLayoutParams(lp);
+        return box;
+    }
+
+    private EditText edit(String hint, String value) {
+        EditText e = new EditText(this);
+        e.setSingleLine(true); e.setHint(hint); e.setText(value);
+        e.setTextColor(Color.WHITE); e.setHintTextColor(0xff8292a8);
+        e.setBackground(round(0xff1b2940, 10, 0xff315b91));
+        e.setPadding(dp(10), dp(4), dp(10), dp(4));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(48));
+        lp.topMargin = dp(7); e.setLayoutParams(lp);
+        return e;
+    }
+
+    private TextView label(String text, int size, boolean bold) {
+        TextView t = new TextView(this);
+        t.setText(text); t.setTextSize(size); t.setTextColor(Color.WHITE);
+        if (bold) t.setTypeface(null, 1);
+        t.setPadding(0, dp(3), 0, dp(3));
+        return t;
+    }
+
+    private Button action(String text, boolean primary) {
+        Button b = new Button(this);
+        b.setText(text); b.setAllCaps(false); b.setTextColor(Color.WHITE);
+        b.setTextSize(13);
+        b.setBackground(round(primary ? 0xff1769c2 : 0xff24446d, 12, 0xff397fc8));
+        return b;
+    }
+
+    private GradientDrawable round(int color, int radius, int stroke) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(color); d.setCornerRadius(dp(radius)); d.setStroke(dp(1), stroke);
+        return d;
+    }
+
+    private int dp(float v) { return Math.round(v * getResources().getDisplayMetrics().density); }
+
+    @Override protected void onDestroy() {
+        super.onDestroy();
+        worker.shutdownNow();
+        adbWorker.shutdownNow();
+    }
 }
