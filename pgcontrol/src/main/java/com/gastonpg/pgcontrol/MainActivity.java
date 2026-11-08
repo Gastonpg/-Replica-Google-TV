@@ -55,6 +55,12 @@ public class MainActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private AdbBridge adb;
     private AdbBridge previewAdb;
+    // Task/volume commands use their own ADB connection so they cannot interrupt uinput.
+    private AdbBridge taskAdb;
+    private SeekBar volumeSeek;
+    private TextView volumeValue;
+    private int volumeMin = 0, volumeMax = 25, volumeCurrent = 0;
+    private final ExecutorService volumeIo = Executors.newSingleThreadExecutor();
 
     interface Done { void accept(JSONObject response); }
     interface AdbWork { void run(String host, int port) throws Exception; }
@@ -66,6 +72,7 @@ public class MainActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(0);
         adb = new AdbBridge(this);
         previewAdb = new AdbBridge(this);
+        taskAdb = new AdbBridge(this);
         showHome();
     }
 
@@ -468,8 +475,39 @@ public class MainActivity extends Activity {
         addKeyButton(nav, "Recientes", 187);
         root.addView(nav);
 
+        // Volumen del TV Box, independiente del control físico.
+        LinearLayout volumePanel = panel();
+        LinearLayout volumeHead = new LinearLayout(this);
+        volumeHead.setGravity(Gravity.CENTER_VERTICAL);
+        TextView volumeTitle = text("VOLUMEN", 12, true, MUTED);
+        volumeHead.addView(volumeTitle, new LinearLayout.LayoutParams(0, -2, 1));
+        volumeValue = text("Leyendo…", 12, true, Color.WHITE);
+        volumeHead.addView(volumeValue);
+        volumePanel.addView(volumeHead);
+        volumeSeek = new SeekBar(this);
+        volumeSeek.setMax(100);
+        volumeSeek.setProgress(0);
+        volumeSeek.setEnabled(false);
+        if (android.os.Build.VERSION.SDK_INT >= 21) {
+            volumeSeek.setProgressTintList(android.content.res.ColorStateList.valueOf(BLUE));
+            volumeSeek.setThumbTintList(android.content.res.ColorStateList.valueOf(BLUE));
+            volumeSeek.setProgressBackgroundTintList(android.content.res.ColorStateList.valueOf(0xff354254));
+        }
+        volumePanel.addView(volumeSeek);
+        volumeSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                if (fromUser && volumeValue != null) volumeValue.setText(progress + "%");
+            }
+            public void onStartTrackingTouch(SeekBar bar) { }
+            public void onStopTrackingTouch(SeekBar bar) {
+                if (volumeMax > volumeMin) applyVolume(bar.getProgress());
+            }
+        });
+        root.addView(volumePanel);
+
         setContentView(root);
         startNativeMouse();
+        loadVolume();
     }
 
     private final AtomicBoolean mouseMoveRunning = new AtomicBoolean(false);
@@ -480,6 +518,22 @@ public class MainActivity extends Activity {
     private volatile boolean nativeMouseReady = false;
     private final AtomicInteger pendingMouseDx = new AtomicInteger(0);
     private final AtomicInteger pendingMouseDy = new AtomicInteger(0);
+    private final AtomicBoolean mouseRestartPending = new AtomicBoolean(false);
+
+    private void recoverNativeMouse(Exception cause) {
+        nativeMouseReady = false;
+        if (!remoteVisible || !mouseRestartPending.compareAndSet(false, true)) return;
+        runOnUiThread(() -> {
+            if (remoteVisible && remoteStatus != null)
+                remoteStatus.setText("Reconectando el mouse virtual…");
+        });
+        // Force a fresh ADB transport before recreating the persistent uinput process.
+        mouseIo.execute(() -> adb.close());
+        main.postDelayed(() -> {
+            mouseRestartPending.set(false);
+            if (remoteVisible) startNativeMouse();
+        }, 500);
+    }
 
     private void startNativeMouse() {
         nativeMouseReady = false;
@@ -533,6 +587,7 @@ public class MainActivity extends Activity {
                     if (remoteVisible && remoteStatus != null)
                         remoteStatus.setText("Mouse virtual: " + shortError(e));
                 });
+                recoverNativeMouse(e);
             } finally {
                 mouseMoveRunning.set(false);
                 if (nativeMouseReady && (pendingMouseDx.get() != 0 || pendingMouseDy.get() != 0) &&
@@ -580,6 +635,7 @@ public class MainActivity extends Activity {
                     if (remoteVisible && remoteStatus != null)
                         remoteStatus.setText("Clic virtual: " + shortError(e));
                 });
+                recoverNativeMouse(e);
             }
         });
     }
@@ -637,11 +693,16 @@ public class MainActivity extends Activity {
     }
 
     private void sendKey(int code) {
-        if (code >= 19 && code <= 22 && nativeMouseReady) {
+        if (code >= 19 && code <= 22) {
+            if (!nativeMouseReady) {
+                if (remoteVisible) startNativeMouse();
+                return;
+            }
             keyIo.execute(() -> {
                 try { adb.nativeMouseKey(code); }
                 catch (Exception e) {
                     runOnUiThread(() -> { if (remoteStatus != null) remoteStatus.setText("Tecla direccional: " + shortError(e)); });
+                    recoverNativeMouse(e);
                 }
             });
             return;
@@ -755,7 +816,15 @@ public class MainActivity extends Activity {
         int port = readAdbPort();
         io.execute(() -> {
             try {
-                List<TaskEntry> tasks = parseTasks(adb.recentTasks(host, port));
+                String dump;
+                try {
+                    dump = taskAdb.recentTasks(host, port);
+                } catch (Exception firstFailure) {
+                    // The task channel may have gone stale; reconnect once without touching uinput.
+                    taskAdb.close();
+                    dump = taskAdb.recentTasks(host, port);
+                }
+                List<TaskEntry> tasks = parseTasks(dump);
                 runOnUiThread(() -> buildTasksDialog(tasks, host, port));
             } catch (Exception e) {
                 runOnUiThread(() -> {
@@ -785,12 +854,12 @@ public class MainActivity extends Activity {
             row.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
             Button open = smallButton("Abrir", BLUE);
             open.setOnClickListener(v -> {
-                runTaskAction(() -> adb.launchApp(host, port, task.pkg), "Abriendo " + task.pkg);
+                runTaskAction(() -> taskAdb.launchApp(host, port, task.pkg), "Abriendo " + task.pkg);
             });
             row.addView(open);
             Button close = smallButton("×", 0xff71313b);
             close.setOnClickListener(v -> {
-                runTaskAction(() -> adb.closeTask(host, port, task.pkg), "Cerrando " + task.pkg);
+                runTaskAction(() -> taskAdb.closeTask(host, port, task.pkg), "Cerrando " + task.pkg);
                 list.removeView(row);
             });
             LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(dp(46), dp(40));
@@ -808,7 +877,7 @@ public class MainActivity extends Activity {
             dialog.dismiss();
             io.execute(() -> {
                 for (TaskEntry task : tasks) {
-                    try { adb.closeTask(host, port, task.pkg); } catch (Exception ignored) { }
+                    try { taskAdb.closeTask(host, port, task.pkg); } catch (Exception ignored) { }
                 }
                 runOnUiThread(() -> { if (remoteStatus != null) remoteStatus.setText("Se enviaron las órdenes para cerrar las aplicaciones."); });
             });
@@ -829,6 +898,56 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> { if (remoteStatus != null) remoteStatus.setText(message + " correctamente."); });
             } catch (Exception e) {
                 runOnUiThread(() -> { if (remoteStatus != null) remoteStatus.setText("Error: " + shortError(e)); });
+            }
+        });
+    }
+
+    private void loadVolume() {
+        if (volumeValue == null || volumeSeek == null) return;
+        final String host = hostFromAddress();
+        final int port = readAdbPort();
+        if (host == null || port < 1) {
+            volumeValue.setText("Sin conexión");
+            return;
+        }
+        volumeIo.execute(() -> {
+            try {
+                String output = taskAdb.shell(host, port, "su 0 cmd media_session volume --stream 3 --get");
+                Matcher matcher = Pattern.compile("volume is (\\d+) in range \\[(-?\\d+)\\.\\.(-?\\d+)\\]").matcher(output);
+                if (!matcher.find()) throw new Exception("El TV Box no informó el nivel de volumen.");
+                int current = Integer.parseInt(matcher.group(1));
+                int min = Integer.parseInt(matcher.group(2));
+                int max = Integer.parseInt(matcher.group(3));
+                if (max <= min) throw new Exception("Rango de volumen no válido.");
+                final int progress = Math.max(0, Math.min(100, Math.round((current - min) * 100f / (max - min))));
+                runOnUiThread(() -> {
+                    if (volumeSeek == null || volumeValue == null) return;
+                    volumeMin = min; volumeMax = max; volumeCurrent = current;
+                    volumeSeek.setProgress(progress);
+                    volumeSeek.setEnabled(true);
+                    volumeValue.setText(progress + "%");
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    if (volumeValue != null) volumeValue.setText("No disponible");
+                    if (volumeSeek != null) volumeSeek.setEnabled(false);
+                });
+            }
+        });
+    }
+
+    private void applyVolume(int progress) {
+        final String host = hostFromAddress();
+        final int port = readAdbPort();
+        final int index = volumeMin + Math.round((volumeMax - volumeMin) * progress / 100f);
+        volumeIo.execute(() -> {
+            try {
+                taskAdb.shell(host, port, "su 0 cmd media_session volume --show --stream 3 --set " + index);
+                volumeCurrent = index;
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    if (volumeValue != null) volumeValue.setText("Error");
+                });
             }
         });
     }
@@ -903,8 +1022,10 @@ public class MainActivity extends Activity {
         if (currentScreen != null) { currentScreen.recycle(); currentScreen = null; }
         if (adb != null) adb.close();
         if (previewAdb != null) previewAdb.close();
+        if (taskAdb != null) taskAdb.close();
         io.shutdownNow();
         previewIo.shutdownNow();
+        volumeIo.shutdownNow();
         keyIo.shutdownNow();
     }
 }
