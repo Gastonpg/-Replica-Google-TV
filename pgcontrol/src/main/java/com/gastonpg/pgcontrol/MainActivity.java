@@ -488,41 +488,75 @@ public class MainActivity extends Activity {
     }
 
     private int lastMouseX = 960, lastMouseY = 540;
-    private long lastMouseMoveAt = 0;
+    private int sentMouseX = 960, sentMouseY = 540;
+    private volatile int pendingMouseX = 960, pendingMouseY = 540;
+    private final AtomicBoolean mouseMoveRunning = new AtomicBoolean(false);
+    private final ExecutorService mouseIo = Executors.newSingleThreadExecutor();
     private float mouseDownX, mouseDownY, mouseLastX, mouseLastY;
     private boolean mouseMoved = false;
+
+    // Coalesce touch events: only the newest target is sent when ADB is busy.
+    // This prevents a backlog of stale mouse commands and keeps movement responsive.
+    private void queueMouseMove(int x, int y) {
+        pendingMouseX = x;
+        pendingMouseY = y;
+        if (!mouseMoveRunning.compareAndSet(false, true)) return;
+        mouseIo.execute(() -> {
+            String host = hostFromAddress();
+            int port = readAdbPort();
+            try {
+                while (host != null && port > 0) {
+                    int targetX = pendingMouseX;
+                    int targetY = pendingMouseY;
+                    if (targetX == sentMouseX && targetY == sentMouseY) {
+                        mouseMoveRunning.set(false);
+                        if ((pendingMouseX != sentMouseX || pendingMouseY != sentMouseY) &&
+                            mouseMoveRunning.compareAndSet(false, true)) continue;
+                        break;
+                    }
+                    adb.mouseSwipe(host, port, sentMouseX, sentMouseY, targetX, targetY, 35);
+                    sentMouseX = targetX;
+                    sentMouseY = targetY;
+                }
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    if (remoteStatus != null) remoteStatus.setText("Mouse: " + shortError(e));
+                });
+            } finally {
+                mouseMoveRunning.set(false);
+                if (pendingMouseX != sentMouseX || pendingMouseY != sentMouseY) {
+                    queueMouseMove(pendingMouseX, pendingMouseY);
+                }
+            }
+        });
+    }
 
     private boolean handleMousePad(MotionEvent event, View surface) {
         if (!touchpadMode) return true;
         final int maxX = 1919, maxY = 1079;
-        int x = Math.max(0, Math.min(maxX, Math.round(event.getX() / Math.max(1f, surface.getWidth()) * maxX)));
-        int y = Math.max(0, Math.min(maxY, Math.round(event.getY() / Math.max(1f, surface.getHeight()) * maxY)));
-        lastMouseX = x;
-        lastMouseY = y;
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
             mouseDownX = mouseLastX = event.getX();
             mouseDownY = mouseLastY = event.getY();
             mouseMoved = false;
-            lastMouseMoveAt = 0;
             return true;
         }
         if (event.getAction() == MotionEvent.ACTION_MOVE) {
             float dx = event.getX() - mouseLastX;
             float dy = event.getY() - mouseLastY;
             if (Math.abs(event.getX() - mouseDownX) + Math.abs(event.getY() - mouseDownY) > dp(7)) mouseMoved = true;
-            long now = android.os.SystemClock.uptimeMillis();
-            if (mouseMoved && now - lastMouseMoveAt >= 70) {
-                int sx = Math.max(0, Math.min(maxX, Math.round(mouseLastX / Math.max(1f, surface.getWidth()) * maxX)));
-                int sy = Math.max(0, Math.min(maxY, Math.round(mouseLastY / Math.max(1f, surface.getHeight()) * maxY)));
-                sendAdb((h,p) -> adb.mouseSwipe(h,p,sx,sy,x,y,65));
-                lastMouseMoveAt = now;
+            if (mouseMoved) {
+                float scaleX = (maxX + 1f) / Math.max(1f, surface.getWidth());
+                float scaleY = (maxY + 1f) / Math.max(1f, surface.getHeight());
+                lastMouseX = Math.max(0, Math.min(maxX, lastMouseX + Math.round(dx * scaleX * 1.25f)));
+                lastMouseY = Math.max(0, Math.min(maxY, lastMouseY + Math.round(dy * scaleY * 1.25f)));
+                queueMouseMove(lastMouseX, lastMouseY);
             }
             mouseLastX = event.getX();
             mouseLastY = event.getY();
             return true;
         }
         if (event.getAction() == MotionEvent.ACTION_UP) {
-            if (!mouseMoved) sendAdb((h,p) -> adb.mouseTap(h,p,x,y));
+            if (!mouseMoved) sendAdb((h,p) -> adb.mouseTap(h,p,lastMouseX,lastMouseY));
             return true;
         }
         return true;
