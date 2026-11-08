@@ -118,11 +118,11 @@ public final class AdbBridge {
     }
 
     public synchronized void mouseTap(String host, int port, int x, int y) throws Exception {
-        shell(host, port, "su 0 input -s mouse tap " + Math.max(0, x) + " " + Math.max(0, y));
+        shell(host, port, "su 0 input mouse tap " + Math.max(0, x) + " " + Math.max(0, y));
     }
 
     public synchronized void mouseSwipe(String host, int port, int x1, int y1, int x2, int y2, int duration) throws Exception {
-        shell(host, port, "su 0 input -s mouse swipe " + Math.max(0, x1) + " " + Math.max(0, y1) + " " +
+        shell(host, port, "su 0 input mouse swipe " + Math.max(0, x1) + " " + Math.max(0, y1) + " " +
             Math.max(0, x2) + " " + Math.max(0, y2) + " " + Math.max(1, duration));
     }
 
