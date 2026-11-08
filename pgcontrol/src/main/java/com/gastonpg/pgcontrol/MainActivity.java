@@ -29,6 +29,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -70,6 +71,8 @@ public class MainActivity extends Activity {
 
     private void showHome() {
         remoteVisible = false;
+        nativeMouseReady = false;
+        mouseIo.execute(() -> adb.stopNativeMouse());
         main.removeCallbacks(captureLoop);
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
@@ -485,55 +488,80 @@ public class MainActivity extends Activity {
         root.addView(nav);
 
         setContentView(root);
+        startNativeMouse();
     }
 
-    private int lastMouseX = 960, lastMouseY = 540;
-    private int sentMouseX = 960, sentMouseY = 540;
     private volatile int pendingMouseX = 960, pendingMouseY = 540;
     private final AtomicBoolean mouseMoveRunning = new AtomicBoolean(false);
     private final ExecutorService mouseIo = Executors.newSingleThreadExecutor();
     private float mouseDownX, mouseDownY, mouseLastX, mouseLastY;
     private boolean mouseMoved = false;
+    private volatile boolean nativeMouseReady = false;
+    private final AtomicInteger pendingMouseDx = new AtomicInteger(0);
+    private final AtomicInteger pendingMouseDy = new AtomicInteger(0);
 
-    // Coalesce touch events: only the newest target is sent when ADB is busy.
-    // This prevents a backlog of stale mouse commands and keeps movement responsive.
-    private void queueMouseMove(int x, int y) {
-        pendingMouseX = x;
-        pendingMouseY = y;
-        if (!mouseMoveRunning.compareAndSet(false, true)) return;
+    private void startNativeMouse() {
+        nativeMouseReady = false;
         mouseIo.execute(() -> {
-            String host = hostFromAddress();
-            int port = readAdbPort();
             try {
-                while (host != null && port > 0) {
-                    int targetX = pendingMouseX;
-                    int targetY = pendingMouseY;
-                    if (targetX == sentMouseX && targetY == sentMouseY) {
-                        mouseMoveRunning.set(false);
-                        if ((pendingMouseX != sentMouseX || pendingMouseY != sentMouseY) &&
-                            mouseMoveRunning.compareAndSet(false, true)) continue;
-                        break;
-                    }
-                    adb.mouseSwipe(host, port, sentMouseX, sentMouseY, targetX, targetY, 35);
-                    sentMouseX = targetX;
-                    sentMouseY = targetY;
+                String host = hostFromAddress();
+                int port = readAdbPort();
+                if (host == null || port < 1) throw new Exception("Dirección ADB no válida.");
+                InputStream input = getAssets().open("pgmouse");
+                ByteArrayOutputStream output = new ByteArrayOutputStream();
+                byte[] buffer = new byte[4096];
+                int count;
+                while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                input.close();
+                adb.startNativeMouse(host, port, output.toByteArray());
+                nativeMouseReady = true;
+                runOnUiThread(() -> {
+                    if (remoteVisible && remoteStatus != null)
+                        remoteStatus.setText("Mouse virtual activo · movimiento directo");
+                });
+            } catch (Exception e) {
+                nativeMouseReady = false;
+                runOnUiThread(() -> {
+                    if (remoteVisible && remoteStatus != null)
+                        remoteStatus.setText("No se pudo iniciar el mouse virtual: " + shortError(e));
+                });
+            }
+        });
+    }
+
+    private void queueMouseDelta(int dx, int dy) {
+        if (!nativeMouseReady) return;
+        pendingMouseDx.addAndGet(dx);
+        pendingMouseDy.addAndGet(dy);
+        if (!mouseMoveRunning.compareAndSet(false, true)) return;
+        drainMouseMoves();
+    }
+
+    private void drainMouseMoves() {
+        mouseIo.execute(() -> {
+            try {
+                while (nativeMouseReady) {
+                    int dx = pendingMouseDx.getAndSet(0);
+                    int dy = pendingMouseDy.getAndSet(0);
+                    if (dx == 0 && dy == 0) break;
+                    adb.nativeMouseMove(dx, dy);
                 }
             } catch (Exception e) {
+                nativeMouseReady = false;
                 runOnUiThread(() -> {
-                    if (remoteStatus != null) remoteStatus.setText("Mouse: " + shortError(e));
+                    if (remoteVisible && remoteStatus != null)
+                        remoteStatus.setText("Mouse virtual: " + shortError(e));
                 });
             } finally {
                 mouseMoveRunning.set(false);
-                if (pendingMouseX != sentMouseX || pendingMouseY != sentMouseY) {
-                    queueMouseMove(pendingMouseX, pendingMouseY);
-                }
+                if (nativeMouseReady && (pendingMouseDx.get() != 0 || pendingMouseDy.get() != 0) &&
+                    mouseMoveRunning.compareAndSet(false, true)) drainMouseMoves();
             }
         });
     }
 
     private boolean handleMousePad(MotionEvent event, View surface) {
         if (!touchpadMode) return true;
-        final int maxX = 1919, maxY = 1079;
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
             mouseDownX = mouseLastX = event.getX();
             mouseDownY = mouseLastY = event.getY();
@@ -545,26 +573,34 @@ public class MainActivity extends Activity {
             float dy = event.getY() - mouseLastY;
             if (Math.abs(event.getX() - mouseDownX) + Math.abs(event.getY() - mouseDownY) > dp(7)) mouseMoved = true;
             if (mouseMoved) {
-                float scaleX = (maxX + 1f) / Math.max(1f, surface.getWidth());
-                float scaleY = (maxY + 1f) / Math.max(1f, surface.getHeight());
-                lastMouseX = Math.max(0, Math.min(maxX, lastMouseX + Math.round(dx * scaleX * 1.25f)));
-                lastMouseY = Math.max(0, Math.min(maxY, lastMouseY + Math.round(dy * scaleY * 1.25f)));
-                queueMouseMove(lastMouseX, lastMouseY);
+                queueMouseDelta(Math.round(dx * 2.0f), Math.round(dy * 2.0f));
             }
             mouseLastX = event.getX();
             mouseLastY = event.getY();
             return true;
         }
         if (event.getAction() == MotionEvent.ACTION_UP) {
-            if (!mouseMoved) sendAdb((h,p) -> adb.mouseTap(h,p,lastMouseX,lastMouseY));
+            if (!mouseMoved) sendMouseClick();
             return true;
         }
         return true;
     }
 
     private void sendMouseClick() {
-        final int x = lastMouseX, y = lastMouseY;
-        sendAdb((h,p) -> adb.mouseTap(h,p,x,y));
+        if (!nativeMouseReady) {
+            if (remoteStatus != null) remoteStatus.setText("Esperá a que se active el mouse virtual.");
+            return;
+        }
+        mouseIo.execute(() -> {
+            try { adb.nativeMouseClick(); }
+            catch (Exception e) {
+                nativeMouseReady = false;
+                runOnUiThread(() -> {
+                    if (remoteVisible && remoteStatus != null)
+                        remoteStatus.setText("Clic virtual: " + shortError(e));
+                });
+            }
+        });
     }
 
     private boolean handleScreenTouch(MotionEvent event) {
