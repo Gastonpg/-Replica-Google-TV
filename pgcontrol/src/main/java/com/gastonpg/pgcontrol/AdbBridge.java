@@ -128,7 +128,13 @@ public final class AdbBridge {
     public synchronized void closeTask(String host, int port, String packageName) throws Exception {
         if (packageName == null || !packageName.matches("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+"))
             throw new IOException("Paquete no válido.");
-        shell(host, port, "su 0 am force-stop " + packageName);
+        shell(host, port, "su 0 am force-stop --user 0 " + packageName);
+    }
+
+    public synchronized void launchApp(String host, int port, String packageName) throws Exception {
+        if (packageName == null || !packageName.matches("[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)+"))
+            throw new IOException("Paquete no válido.");
+        shell(host, port, "su 0 monkey -p " + packageName + " -c android.intent.category.LAUNCHER 1");
     }
 
     public synchronized void moveTask(String host, int port, int taskId) throws Exception {
