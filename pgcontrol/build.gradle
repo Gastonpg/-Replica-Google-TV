@@ -4,10 +4,10 @@ android {
     namespace 'com.gastonpg.pgcontrol'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.gastonpg.pgcontrol'
+        applicationId 'com.gastonpg.pgcontrol.dev'
         minSdk 23
         targetSdk 28
-        versionCode 2
+        versionCode 1
         versionName '2.0.0'
     }
     compileOptions {
