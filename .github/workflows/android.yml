@@ -22,7 +22,13 @@ jobs:
           packages: "platform-tools"
       - name: Install Android platform and build tools
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools" "ndk;28.1.13356709"
-      - name: Build ARMv7 virtual mouse helper\n        run: |\n          NDK="$ANDROID_HOME/ndk/28.1.13356709"\n          mkdir -p pgcontrol/src/main/assets\n          "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi28-clang" \\\n            pgcontrol/src/main/cpp/pgmouse.c -O2 -fPIE -pie -o pgcontrol/src/main/assets/pgmouse\n          file pgcontrol/src/main/assets/pgmouse\n      - name: Set up Gradle
+      - name: Build ARMv7 virtual mouse helper
+        run: |
+          NDK="$ANDROID_HOME/ndk/28.1.13356709"
+          mkdir -p pgcontrol/src/main/assets
+          "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi28-clang" pgcontrol/src/main/cpp/pgmouse.c -O2 -fPIE -pie -o pgcontrol/src/main/assets/pgmouse
+          file pgcontrol/src/main/assets/pgmouse
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
