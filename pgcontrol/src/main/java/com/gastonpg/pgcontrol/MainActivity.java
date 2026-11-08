@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -42,13 +43,17 @@ public class MainActivity extends Activity {
     private int sizePercent = 100;
     private boolean connected = false;
     private boolean remoteVisible = false;
-    private boolean touchpadMode = false;
+    private boolean touchpadMode = true;
     private ImageView screenPreview;
     private Bitmap currentScreen;
     private float touchStartX, touchStartY;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
+    // Keep live preview traffic isolated so screenshots never block remote-control commands.
+    private final ExecutorService previewIo = Executors.newSingleThreadExecutor();
+    private final AtomicBoolean captureInFlight = new AtomicBoolean(false);
     private final Handler main = new Handler(Looper.getMainLooper());
     private AdbBridge adb;
+    private AdbBridge previewAdb;
 
     interface Done { void accept(JSONObject response); }
     interface AdbWork { void run(String host, int port) throws Exception; }
@@ -59,6 +64,7 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         getWindow().getDecorView().setSystemUiVisibility(0);
         adb = new AdbBridge(this);
+        previewAdb = new AdbBridge(this);
         showHome();
     }
 
@@ -366,7 +372,7 @@ public class MainActivity extends Activity {
 
     private void showRemote() {
         remoteVisible = true;
-        touchpadMode = false;
+        touchpadMode = true;
         LinearLayout root = column();
         root.setPadding(dp(12), dp(10), dp(12), dp(12));
         root.setBackgroundColor(BG);
@@ -393,6 +399,7 @@ public class MainActivity extends Activity {
         screenPreview = new ImageView(this);
         screenPreview.setScaleType(ImageView.ScaleType.FIT_CENTER);
         screenPreview.setAdjustViewBounds(false);
+        screenPreview.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         screenFrame.addView(screenPreview, new FrameLayout.LayoutParams(-1, -1));
         screenPreview.setOnTouchListener((view, event) -> handleScreenTouch(event));
         LinearLayout.LayoutParams screenLp = new LinearLayout.LayoutParams(-1, 0, 1f);
@@ -401,13 +408,14 @@ public class MainActivity extends Activity {
 
         LinearLayout modeRow = new LinearLayout(this);
         modeRow.setGravity(Gravity.CENTER_VERTICAL);
-        Button touch = smallButton("Modo táctil: pantalla", PANEL2);
+        Button touch = smallButton("Modo: Flechas + OK", BLUE);
         touch.setOnClickListener(v -> {
             touchpadMode = !touchpadMode;
-            touch.setText(touchpadMode ? "Modo touchpad: direcciones" : "Modo táctil: pantalla");
+            touch.setText(touchpadMode ? "Modo: Flechas + OK" : "Modo: Táctil");
+            touch.setBackgroundTintList(android.content.res.ColorStateList.valueOf(touchpadMode ? BLUE : PANEL2));
             remoteStatus.setText(touchpadMode
-                ? "Touchpad activo: deslizá para navegar y tocá para aceptar."
-                : "Tocá la imagen para pulsar en el TV Box; arrastrá para deslizar.");
+                ? "Navegación por botones: usá las flechas y OK. La imagen no recibe toques."
+                : "Modo táctil: tocá para pulsar y arrastrá para deslizar.");
         });
         modeRow.addView(touch, new LinearLayout.LayoutParams(0, dp(42), 1));
         Button tasks = smallButton("Multitarea", BLUE);
@@ -445,6 +453,7 @@ public class MainActivity extends Activity {
     }
 
     private boolean handleScreenTouch(MotionEvent event) {
+        if (touchpadMode) return true;
         if (currentScreen == null || screenPreview == null) return false;
         if (event.getAction() == MotionEvent.ACTION_DOWN) {
             touchStartX = event.getX();
@@ -454,12 +463,6 @@ public class MainActivity extends Activity {
         if (event.getAction() == MotionEvent.ACTION_UP) {
             float dx = event.getX() - touchStartX;
             float dy = event.getY() - touchStartY;
-            if (touchpadMode) {
-                if (Math.max(Math.abs(dx), Math.abs(dy)) < dp(18)) sendKey(23);
-                else if (Math.abs(dx) > Math.abs(dy)) sendKey(dx > 0 ? 22 : 21);
-                else sendKey(dy > 0 ? 20 : 19);
-                return true;
-            }
             int[] start = mapToScreen(touchStartX, touchStartY);
             int[] end = mapToScreen(event.getX(), event.getY());
             final int duration = Math.max(120, Math.min(900, (int)(event.getEventTime()-event.getDownTime())));
@@ -520,11 +523,14 @@ public class MainActivity extends Activity {
         final String host = hostFromAddress();
         final int port = readAdbPort();
         if (host == null || port < 1) return;
-        io.execute(() -> {
+        if (!captureInFlight.compareAndSet(false, true)) return;
+        previewIo.execute(() -> {
             try {
-                byte[] bytes = adb.screenshot(host, port);
+                byte[] bytes = previewAdb.screenshot(host, port);
                 BitmapFactory.Options previewOptions = new BitmapFactory.Options();
                 previewOptions.inSampleSize = 3;
+                previewOptions.inPreferredConfig = Bitmap.Config.RGB_565;
+                previewOptions.inDither = false;
                 Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, previewOptions);
                 if (bitmap == null) throw new Exception("No se pudo decodificar la captura.");
                 runOnUiThread(() -> {
@@ -535,14 +541,16 @@ public class MainActivity extends Activity {
                     if (remoteStatus != null) remoteStatus.setText("Pantalla en vivo · " + bitmap.getWidth() + " × " + bitmap.getHeight());
                     if (old != null && old != bitmap) old.recycle();
                     main.removeCallbacks(captureLoop);
-                    main.postDelayed(captureLoop, 800);
+                    main.postDelayed(captureLoop, 250);
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     if (remoteStatus != null) remoteStatus.setText("No se pudo obtener la pantalla: " + shortError(e));
                     main.removeCallbacks(captureLoop);
-                    main.postDelayed(captureLoop, 2500);
+                    main.postDelayed(captureLoop, 1200);
                 });
+            } finally {
+                captureInFlight.set(false);
             }
         });
     }
@@ -740,6 +748,8 @@ public class MainActivity extends Activity {
         main.removeCallbacks(captureLoop);
         if (currentScreen != null) { currentScreen.recycle(); currentScreen = null; }
         if (adb != null) adb.close();
+        if (previewAdb != null) previewAdb.close();
         io.shutdownNow();
+        previewIo.shutdownNow();
     }
 }
