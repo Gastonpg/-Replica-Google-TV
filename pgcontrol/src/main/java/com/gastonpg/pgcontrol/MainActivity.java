@@ -462,10 +462,11 @@ public class MainActivity extends Activity {
             }
             int[] start = mapToScreen(touchStartX, touchStartY);
             int[] end = mapToScreen(event.getX(), event.getY());
+            final int duration = Math.max(120, Math.min(900, (int)(event.getEventTime()-event.getDownTime())));
             if (Math.max(Math.abs(dx), Math.abs(dy)) < dp(12)) {
                 sendAdb((h,p) -> adb.tap(h,p,end[0],end[1]));
             } else {
-                sendAdb((h,p) -> adb.swipe(h,p,start[0],start[1],end[0],end[1],Math.max(120, Math.min(900, (int)(event.getEventTime()-event.getDownTime())))));
+                sendAdb((h,p) -> adb.swipe(h,p,start[0],start[1],end[0],end[1],duration));
             }
             return true;
         }
@@ -576,7 +577,7 @@ public class MainActivity extends Activity {
         io.execute(() -> {
             try {
                 List<TaskEntry> tasks = parseTasks(adb.recentTasks(host, port));
-                runOnUiThread(() -> buildTasksDialog(tasks));
+                runOnUiThread(() -> buildTasksDialog(tasks, host, port));
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     if (remoteStatus != null) remoteStatus.setText("No se pudieron consultar las aplicaciones: " + shortError(e));
@@ -585,7 +586,7 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void buildTasksDialog(List<TaskEntry> tasks) {
+    private void buildTasksDialog(List<TaskEntry> tasks, String host, int port) {
         LinearLayout content = column();
         content.setPadding(dp(16), dp(12), dp(16), dp(8));
         content.setBackgroundColor(BG);
@@ -605,12 +606,12 @@ public class MainActivity extends Activity {
             row.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
             Button open = smallButton("Abrir", BLUE);
             open.setOnClickListener(v -> {
-                runTaskAction(() -> adb.moveTask(hostFromAddress(), readAdbPort(), task.id), "Volviendo a " + task.pkg);
+                runTaskAction(() -> adb.moveTask(host, port, task.id), "Volviendo a " + task.pkg);
             });
             row.addView(open);
             Button close = smallButton("×", 0xff71313b);
             close.setOnClickListener(v -> {
-                runTaskAction(() -> adb.closeTask(hostFromAddress(), readAdbPort(), task.pkg), "Cerrando " + task.pkg);
+                runTaskAction(() -> adb.closeTask(host, port, task.pkg), "Cerrando " + task.pkg);
                 list.removeView(row);
             });
             LinearLayout.LayoutParams closeLp = new LinearLayout.LayoutParams(dp(46), dp(40));
@@ -628,7 +629,7 @@ public class MainActivity extends Activity {
             dialog.dismiss();
             io.execute(() -> {
                 for (TaskEntry task : tasks) {
-                    try { adb.closeTask(hostFromAddress(), readAdbPort(), task.pkg); } catch (Exception ignored) { }
+                    try { adb.closeTask(host, port, task.pkg); } catch (Exception ignored) { }
                 }
                 runOnUiThread(() -> { if (remoteStatus != null) remoteStatus.setText("Se enviaron las órdenes para cerrar las aplicaciones."); });
             });
