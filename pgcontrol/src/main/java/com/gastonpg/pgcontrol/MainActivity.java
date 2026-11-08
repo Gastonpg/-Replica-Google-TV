@@ -373,10 +373,12 @@ public class MainActivity extends Activity {
     private void showRemote() {
         remoteVisible = true;
         touchpadMode = true;
+        main.removeCallbacks(captureLoop);
         LinearLayout root = column();
-        root.setPadding(dp(14), dp(10), dp(14), dp(12));
+        root.setPadding(dp(12), dp(10), dp(12), dp(12));
         root.setBackgroundColor(BG);
 
+        // Header preserved from the original remote layout.
         LinearLayout header = new LinearLayout(this);
         header.setGravity(Gravity.CENTER_VERTICAL);
         Button back = smallButton("‹  Inicio", PANEL2);
@@ -385,43 +387,43 @@ public class MainActivity extends Activity {
         TextView title = text("CONTROL REMOTO", 16, true, Color.WHITE);
         title.setGravity(Gravity.CENTER);
         header.addView(title, new LinearLayout.LayoutParams(0, dp(46), 1));
-        Button tasks = smallButton("Multitarea", BLUE);
-        tasks.setOnClickListener(v -> showTasksDialog());
-        header.addView(tasks);
+        Button refresh = smallButton("↻", PANEL2);
+        refresh.setOnClickListener(v -> {
+            if (remoteStatus != null) remoteStatus.setText("Control directo activo.");
+        });
+        header.addView(refresh);
         root.addView(header);
 
-        remoteStatus = text("Control directo · sin transmisión de pantalla", 11, false, MUTED);
-        remoteStatus.setPadding(dp(4), dp(5), dp(4), dp(10));
+        remoteStatus = text("Control directo · elegí el modo de uso", 11, false, MUTED);
+        remoteStatus.setPadding(dp(4), dp(4), dp(4), dp(7));
         root.addView(remoteStatus);
 
-        LinearLayout modes = new LinearLayout(this);
-        modes.setGravity(Gravity.CENTER);
-        Button mouseMode = smallButton("☝ Táctil / Mouse", BLUE);
-        Button keysMode = smallButton("Flechas + OK", PANEL2);
-        modes.addView(mouseMode, new LinearLayout.LayoutParams(0, dp(44), 1));
-        LinearLayout.LayoutParams keysLp = new LinearLayout.LayoutParams(0, dp(44), 1);
-        keysLp.leftMargin = dp(8);
-        modes.addView(keysMode, keysLp);
-        root.addView(modes);
+        // The old screen-preview area is replaced only by the touchpad / D-pad area.
+        FrameLayout controlFrame = new FrameLayout(this);
+        controlFrame.setBackground(round(PANEL, 0xff34465c, 12));
+        LinearLayout.LayoutParams controlLp = new LinearLayout.LayoutParams(-1, 0, 1f);
+        controlLp.bottomMargin = dp(9);
+        root.addView(controlFrame, controlLp);
 
-        TextView touchHint = text("Deslizá el dedo para mover el puntero · tocá para hacer clic", 12, false, MUTED);
-        touchHint.setGravity(Gravity.CENTER);
-        touchHint.setPadding(dp(4), dp(12), dp(4), dp(10));
-        root.addView(touchHint);
-
-        FrameLayout touchSurface = new FrameLayout(this);
-        touchSurface.setBackground(round(0xff101b2a, 0xff258cff, 18));
-        TextView touchIcon = text("✥", 42, true, 0xff8fc5ff);
+        LinearLayout touchSurface = column();
+        touchSurface.setGravity(Gravity.CENTER);
+        touchSurface.setBackground(round(0xff101b2a, 0xff258cff, 12));
+        TextView touchIcon = text("✥", 48, true, 0xff8fc5ff);
         touchIcon.setGravity(Gravity.CENTER);
-        touchSurface.addView(touchIcon, new FrameLayout.LayoutParams(-1, -1));
-        LinearLayout.LayoutParams surfaceLp = new LinearLayout.LayoutParams(-1, dp(230));
-        surfaceLp.bottomMargin = dp(12);
-        root.addView(touchSurface, surfaceLp);
+        touchSurface.addView(touchIcon);
+        TextView touchLabel = text("DESLIZÁ PARA MOVER EL PUNTERO", 12, true, MUTED);
+        touchLabel.setGravity(Gravity.CENTER);
+        touchLabel.setPadding(0, dp(12), 0, 0);
+        touchSurface.addView(touchLabel);
+        controlFrame.addView(touchSurface, new FrameLayout.LayoutParams(-1, -1));
         touchSurface.setOnTouchListener((view, event) -> handleMousePad(event, view));
 
         LinearLayout dpadPanel = column();
         dpadPanel.setGravity(Gravity.CENTER);
-        dpadPanel.setPadding(0, dp(5), 0, dp(5));
+        TextView dpadHint = text("NAVEGACIÓN CON FLECHAS", 12, true, MUTED);
+        dpadHint.setGravity(Gravity.CENTER);
+        dpadHint.setPadding(0, 0, 0, dp(12));
+        dpadPanel.addView(dpadHint);
         LinearLayout padCol = column();
         padCol.setGravity(Gravity.CENTER);
         addKeyButton(padCol, "▲", 19);
@@ -433,27 +435,38 @@ public class MainActivity extends Activity {
         padCol.addView(middle);
         addKeyButton(padCol, "▼", 20);
         dpadPanel.addView(padCol);
+        controlFrame.addView(dpadPanel, new FrameLayout.LayoutParams(-1, -1));
+        dpadPanel.setVisibility(View.GONE);
+
+        // Original position: mode switch and Multitarea stay together below the center panel.
+        LinearLayout modeRow = new LinearLayout(this);
+        modeRow.setGravity(Gravity.CENTER_VERTICAL);
+        Button mode = smallButton("Modo: Táctil / Mouse", BLUE);
+        mode.setOnClickListener(v -> {
+            touchpadMode = !touchpadMode;
+            touchSurface.setVisibility(touchpadMode ? View.VISIBLE : View.GONE);
+            dpadPanel.setVisibility(touchpadMode ? View.GONE : View.VISIBLE);
+            mode.setText(touchpadMode ? "Modo: Táctil / Mouse" : "Modo: Flechas + OK");
+            mode.setBackgroundTintList(android.content.res.ColorStateList.valueOf(touchpadMode ? BLUE : PANEL2));
+            if (remoteStatus != null) remoteStatus.setText(touchpadMode
+                ? "Touchpad activo · deslizá para mover y tocá para hacer clic."
+                : "Flechas activas · ▲ ▼ ◀ ▶ y OK.");
+        });
+        modeRow.addView(mode, new LinearLayout.LayoutParams(0, dp(42), 1));
+        Button tasks = smallButton("Multitarea", BLUE);
+        tasks.setOnClickListener(v -> showTasksDialog());
+        LinearLayout.LayoutParams taskLp = new LinearLayout.LayoutParams(0, dp(42), 1);
+        taskLp.leftMargin = dp(8);
+        modeRow.addView(tasks, taskLp);
+        root.addView(modeRow);
+
         LinearLayout nav = new LinearLayout(this);
         nav.setGravity(Gravity.CENTER);
         addKeyButton(nav, "Atrás", 4);
         addKeyButton(nav, "Inicio", 3);
         addKeyButton(nav, "Recientes", 187);
-        dpadPanel.addView(nav);
-        root.addView(dpadPanel);
+        root.addView(nav);
 
-        Runnable updateMode = () -> {
-            touchSurface.setVisibility(touchpadMode ? View.VISIBLE : View.GONE);
-            touchHint.setVisibility(touchpadMode ? View.VISIBLE : View.GONE);
-            dpadPanel.setVisibility(touchpadMode ? View.GONE : View.VISIBLE);
-            mouseMode.setBackgroundTintList(android.content.res.ColorStateList.valueOf(touchpadMode ? BLUE : PANEL2));
-            keysMode.setBackgroundTintList(android.content.res.ColorStateList.valueOf(touchpadMode ? PANEL2 : BLUE));
-            if (remoteStatus != null) remoteStatus.setText(touchpadMode
-                ? "Mouse táctil activo · el TV Box recibe movimientos de mouse por ADB."
-                : "Modo de flechas activo · usá ▲ ▼ ◀ ▶ y OK.");
-        };
-        mouseMode.setOnClickListener(v -> { touchpadMode = true; updateMode.run(); });
-        keysMode.setOnClickListener(v -> { touchpadMode = false; updateMode.run(); });
-        updateMode.run();
         setContentView(root);
     }
 
