@@ -491,7 +491,6 @@ public class MainActivity extends Activity {
         startNativeMouse();
     }
 
-    private volatile int pendingMouseX = 960, pendingMouseY = 540;
     private final AtomicBoolean mouseMoveRunning = new AtomicBoolean(false);
     private final ExecutorService mouseIo = Executors.newSingleThreadExecutor();
     private float mouseDownX, mouseDownY, mouseLastX, mouseLastY;
