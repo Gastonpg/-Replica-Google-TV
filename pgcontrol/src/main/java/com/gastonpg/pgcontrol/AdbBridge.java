@@ -49,7 +49,7 @@ public final class AdbBridge {
         boolean ok = next.connect(8, TimeUnit.SECONDS, false);
         if (!ok) {
             next.close();
-            throw new IOException("ADB no respondió. Revisá la IP, el puerto y la depuración ADB.");
+            throw new IOException("ADB no respondió. Si aparece una autorización RSA en el televisor, aceptala y volvé a intentar.");
         }
         connection = next;
         connectedHost = host;
@@ -70,11 +70,7 @@ public final class AdbBridge {
         AdbStream stream = connection.open("shell:" + command);
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
-            byte[] part;
-            while ((part = stream.read()) != null) {
-                out.write(part);
-                if (out.size() > 12 * 1024 * 1024) throw new IOException("La respuesta ADB es demasiado grande.");
-            }
+            readToEnd(stream, out, 2 * 1024 * 1024);
             return new String(out.toByteArray(), "UTF-8");
         } finally {
             try { stream.close(); } catch (Exception ignored) { }
@@ -86,11 +82,7 @@ public final class AdbBridge {
         AdbStream stream = connection.open("shell:screencap -p");
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream(512 * 1024);
-            byte[] part;
-            while ((part = stream.read()) != null) {
-                out.write(part);
-                if (out.size() > 12 * 1024 * 1024) throw new IOException("Captura demasiado grande.");
-            }
+            readToEnd(stream, out, 12 * 1024 * 1024);
             byte[] png = out.toByteArray();
             if (png.length < 8 || png[0] != (byte)0x89 || png[1] != 0x50 ||
                 png[2] != 0x4e || png[3] != 0x47) {
@@ -99,6 +91,21 @@ public final class AdbBridge {
             return png;
         } finally {
             try { stream.close(); } catch (Exception ignored) { }
+        }
+    }
+
+    private void readToEnd(AdbStream stream, ByteArrayOutputStream out, int maxBytes) throws Exception {
+        while (true) {
+            byte[] part;
+            try {
+                part = stream.read();
+            } catch (IOException closed) {
+                if (stream.isClosed()) break;
+                throw closed;
+            }
+            if (part == null) break;
+            out.write(part);
+            if (out.size() > maxBytes) throw new IOException("La respuesta ADB es demasiado grande.");
         }
     }
 
@@ -112,6 +119,10 @@ public final class AdbBridge {
 
     public synchronized void key(String host, int port, int keyCode) throws Exception {
         shell(host, port, "su 0 input keyevent " + keyCode);
+    }
+
+    public synchronized String recentTasks(String host, int port) throws Exception {
+        return shell(host, port, "su 0 sh -c 'dumpsys activity recents'");
     }
 
     public synchronized void closeTask(String host, int port, String packageName) throws Exception {
