@@ -523,7 +523,9 @@ public class MainActivity extends Activity {
         io.execute(() -> {
             try {
                 byte[] bytes = adb.screenshot(host, port);
-                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                BitmapFactory.Options previewOptions = new BitmapFactory.Options();
+                previewOptions.inSampleSize = 3;
+                Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, previewOptions);
                 if (bitmap == null) throw new Exception("No se pudo decodificar la captura.");
                 runOnUiThread(() -> {
                     if (!remoteVisible || screenPreview == null) { bitmap.recycle(); return; }
@@ -533,7 +535,7 @@ public class MainActivity extends Activity {
                     if (remoteStatus != null) remoteStatus.setText("Pantalla en vivo · " + bitmap.getWidth() + " × " + bitmap.getHeight());
                     if (old != null && old != bitmap) old.recycle();
                     main.removeCallbacks(captureLoop);
-                    main.postDelayed(captureLoop, 1200);
+                    main.postDelayed(captureLoop, 800);
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
@@ -553,7 +555,7 @@ public class MainActivity extends Activity {
     private List<TaskEntry> parseTasks(String dump) {
         List<TaskEntry> tasks = new ArrayList<>();
         Set<String> seen = new HashSet<>();
-        Pattern pattern = Pattern.compile("(?m)^\\s*\\* Recent #\\d+: TaskRecord\\{[^\\n]*?#(\\d+)\\s+(?:A|I)=([^\\s}]+)");
+        Pattern pattern = Pattern.compile("(?m)^\\s*\\* Recent #\\d+: (?:TaskRecord|Task)\\{[^\\n]*?#(\\d+)[^\\n]*?\\bA=([^\\s}]+)");
         Matcher matcher = pattern.matcher(dump);
         while (matcher.find() && tasks.size() < 40) {
             try {
@@ -566,6 +568,21 @@ public class MainActivity extends Activity {
                 TaskEntry entry = new TaskEntry();
                 entry.id = id; entry.pkg = pkg; tasks.add(entry);
             } catch (Exception ignored) { }
+        }
+        // Fallback for Android builds that print task components instead of A=package.
+        if (tasks.isEmpty()) {
+            Pattern componentPattern = Pattern.compile("(?m)^\\s*\\* Recent #\\d+: (?:TaskRecord|Task)\\{[^\\n]*?#(\\d+)[^\\n]*?([A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+)/[^\\s}]+");
+            Matcher componentMatcher = componentPattern.matcher(dump);
+            while (componentMatcher.find() && tasks.size() < 40) {
+                try {
+                    int id = Integer.parseInt(componentMatcher.group(1));
+                    String pkg = componentMatcher.group(2);
+                    if (pkg.equals("com.gastonpg.replicagoogletv.bannereditor") ||
+                        pkg.equals("com.android.systemui") || pkg.equals("android") || !seen.add(pkg)) continue;
+                    TaskEntry entry = new TaskEntry();
+                    entry.id = id; entry.pkg = pkg; tasks.add(entry);
+                } catch (Exception ignored) { }
+            }
         }
         return tasks;
     }
@@ -606,7 +623,7 @@ public class MainActivity extends Activity {
             row.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
             Button open = smallButton("Abrir", BLUE);
             open.setOnClickListener(v -> {
-                runTaskAction(() -> adb.moveTask(host, port, task.id), "Volviendo a " + task.pkg);
+                runTaskAction(() -> adb.launchApp(host, port, task.pkg), "Abriendo " + task.pkg);
             });
             row.addView(open);
             Button close = smallButton("×", 0xff71313b);
