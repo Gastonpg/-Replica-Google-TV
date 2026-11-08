@@ -20,6 +20,7 @@ public final class AdbBridge {
         "/data/data/com.gastonpg.replicagoogletv.bannereditor/shared_prefs/pg_control_connection.xml";
     private final Context context;
     private AdbConnection connection;
+    private Socket socket;
     private String connectedHost;
     private int connectedPort;
     private AdbStream nativeMouseStream;
@@ -41,18 +42,20 @@ public final class AdbBridge {
     }
 
     private synchronized void ensureConnected(String host, int port) throws Exception {
-        if (connection != null && host.equals(connectedHost) && port == connectedPort) return;
+        if (connection != null && socket != null && socket.isConnected() && !socket.isClosed() &&
+            host.equals(connectedHost) && port == connectedPort) return;
         close();
-        Socket socket = new Socket();
-        socket.connect(new java.net.InetSocketAddress(host, port), 5000);
-        socket.setSoTimeout(15000);
-        AdbConnection next = AdbConnection.create(socket, crypto());
+        Socket nextSocket = new Socket();
+        nextSocket.connect(new java.net.InetSocketAddress(host, port), 5000);
+        nextSocket.setSoTimeout(15000);
+        AdbConnection next = AdbConnection.create(nextSocket, crypto());
         boolean ok = next.connect(8, TimeUnit.SECONDS, false);
         if (!ok) {
             next.close();
             throw new IOException("ADB no respondió. Si aparece una autorización RSA en el televisor, aceptala y volvé a intentar.");
         }
         connection = next;
+        socket = nextSocket;
         connectedHost = host;
         connectedPort = port;
     }
@@ -225,6 +228,10 @@ public final class AdbBridge {
             try { connection.close(); } catch (Exception ignored) { }
         }
         connection = null;
+        if (socket != null) {
+            try { socket.close(); } catch (Exception ignored) { }
+        }
+        socket = null;
         connectedHost = null;
         connectedPort = 0;
     }
