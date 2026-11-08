@@ -902,6 +902,32 @@ public class MainActivity extends Activity {
         });
     }
 
+    private int[] parseMusicVolume(String output) throws Exception {
+        Matcher blockMatcher = Pattern.compile("(?s)- STREAM_MUSIC:(.*?)(?=\\n\\s*- STREAM_|\\z)").matcher(output);
+        if (!blockMatcher.find()) throw new Exception("No se encontró STREAM_MUSIC.");
+        String block = blockMatcher.group(1);
+        Matcher minMatcher = Pattern.compile("(?m)Min:\\s*(\\d+)").matcher(block);
+        Matcher maxMatcher = Pattern.compile("(?m)Max:\\s*(\\d+)").matcher(block);
+        Matcher devicesMatcher = Pattern.compile("(?m)Devices:\\s*([^\\r\\n]+)").matcher(block);
+        Matcher currentLine = Pattern.compile("(?m)Current:\\s*([^\\r\\n]+)").matcher(block);
+        if (!minMatcher.find() || !maxMatcher.find() || !devicesMatcher.find() || !currentLine.find())
+            throw new Exception("No se pudo interpretar el volumen HDMI.");
+        int min = Integer.parseInt(minMatcher.group(1));
+        int max = Integer.parseInt(maxMatcher.group(1));
+        String activeDevice = devicesMatcher.group(1).trim();
+        Matcher values = Pattern.compile("(?:\\d+\\s*)?\\(([^)]+)\\):\\s*(\\d+)").matcher(currentLine.group(1));
+        Integer current = null;
+        while (values.find()) {
+            if (values.group(1).trim().equalsIgnoreCase(activeDevice)) {
+                current = Integer.parseInt(values.group(2));
+                break;
+            }
+        }
+        if (current == null) throw new Exception("No se encontró el nivel del dispositivo activo: " + activeDevice);
+        if (max <= min || current < min || current > max) throw new Exception("Rango de volumen no válido.");
+        return new int[]{current, min, max};
+    }
+
     private void loadVolume() {
         if (volumeValue == null || volumeSeek == null) return;
         final String host = hostFromAddress();
@@ -912,13 +938,9 @@ public class MainActivity extends Activity {
         }
         volumeIo.execute(() -> {
             try {
-                String output = taskAdb.shell(host, port, "su 0 cmd media_session volume --stream 3 --get");
-                Matcher matcher = Pattern.compile("volume is (\\d+) in range \\[(-?\\d+)\\.\\.(-?\\d+)\\]").matcher(output);
-                if (!matcher.find()) throw new Exception("El TV Box no informó el nivel de volumen.");
-                int current = Integer.parseInt(matcher.group(1));
-                int min = Integer.parseInt(matcher.group(2));
-                int max = Integer.parseInt(matcher.group(3));
-                if (max <= min) throw new Exception("Rango de volumen no válido.");
+                String output = taskAdb.shell(host, port, "su 0 dumpsys audio");
+                int[] parsed = parseMusicVolume(output);
+                int current = parsed[0], min = parsed[1], max = parsed[2];
                 final int progress = Math.max(0, Math.min(100, Math.round((current - min) * 100f / (max - min))));
                 runOnUiThread(() -> {
                     if (volumeSeek == null || volumeValue == null) return;
@@ -939,14 +961,22 @@ public class MainActivity extends Activity {
     private void applyVolume(int progress) {
         final String host = hostFromAddress();
         final int port = readAdbPort();
-        final int index = volumeMin + Math.round((volumeMax - volumeMin) * progress / 100f);
+        if (host == null || port < 1) return;
+        final int target = volumeMin + Math.round((volumeMax - volumeMin) * progress / 100f);
         volumeIo.execute(() -> {
             try {
-                taskAdb.shell(host, port, "su 0 cmd media_session volume --show --stream 3 --set " + index);
-                volumeCurrent = index;
+                int difference = target - volumeCurrent;
+                int keyCode = difference > 0 ? 24 : 25;
+                for (int i = 0; i < Math.abs(difference); i++) {
+                    taskAdb.shell(host, port, "su 0 input keyevent " + keyCode);
+                }
+                volumeCurrent = target;
+                runOnUiThread(() -> {
+                    if (volumeValue != null) volumeValue.setText(progress + "%");
+                });
             } catch (Exception e) {
                 runOnUiThread(() -> {
-                    if (volumeValue != null) volumeValue.setText("Error");
+                    if (volumeValue != null) volumeValue.setText("Error al cambiar");
                 });
             }
         });
